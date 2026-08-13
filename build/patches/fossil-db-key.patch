@@ -1,5 +1,5 @@
---- a/src/db.c	2026-08-12 22:43:13
-+++ b/src/db.c	2026-08-12 22:43:13
+--- a/src/db.c	2026-08-13 13:00:00
++++ b/src/db.c	2026-08-13 13:00:00
 @@ -2117,13 +2117,97 @@
    return processId;
  }
@@ -65,7 +65,7 @@
 +    blob_reset(&out);
 +    return 0;
 +  }
- 
++
 +  /* Trim trailing whitespace (gpg appends a newline by default). */
 +  while( blob_size(&out) > 0 ){
 +    char c = blob_buffer(&out)[blob_size(&out)-1];
@@ -75,7 +75,7 @@
 +      break;
 +    }
 +  }
-+
+ 
 +  char *zResult = fossil_strdup(blob_str(&out));
 +  fossil_secure_zero(blob_buffer(&out), blob_size(&out));
 +  blob_reset(&out);
@@ -98,7 +98,7 @@
  */
  static void db_maybe_obtain_encryption_key(
    const char *zDbFile,   /* Name of the database file */
-@@ -2135,10 +2219,32 @@
+@@ -2135,10 +2219,40 @@
      if( zKey ){
        blob_set(pKey, zKey);
      }else{
@@ -114,7 +114,15 @@
 +      }else{
 +        char *zGpgKey = see_decrypt_master_key(zDbFile);
 +        if( zGpgKey ){
-+          blob_set(pKey, zGpgKey);
++          /* blob_set() aliases pBlob->aData directly to zGpgKey (see
++          ** blob_init()) rather than copying it -- zeroing/freeing zGpgKey
++          ** right after, as the original version of this code did, left
++          ** pKey pointing at wiped-then-freed memory for every subsequent
++          ** use (both db_set_saved_encryption_key() below and the caller's
++          ** own blob_str(&key) for the PRAGMA command). blob_append() onto
++          ** the still-empty pKey performs a real memcpy, so pKey survives
++          ** independently of zGpgKey's lifetime. */
++          blob_append(pKey, zGpgKey, (int)strlen(zGpgKey));
 +          fossil_secure_zero(zGpgKey, strlen(zGpgKey));
 +          fossil_free(zGpgKey);
 +          db_set_saved_encryption_key(pKey);
