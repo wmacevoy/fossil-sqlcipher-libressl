@@ -1,12 +1,9 @@
 --- a/src/util.c
 +++ b/src/util.c
-@@ -61,6 +61,40 @@
- #else
-   return fileno(p);
- #endif
-+}
-+
-+/*
+@@ -64,6 +64,41 @@
+ }
+ 
+ /*
 +** fossil-see embedding hook (process lifetime, not per-repo): an in-process
 +** host with no fork/exec available (e.g. an iOS FFI shim, where fork/exec
 +** is forbidden outright) registers a handler here instead of getting an
@@ -16,14 +13,15 @@
 +** (`g`) -- fossil_main() does `memset(&g,0,...)` before every command
 +** dispatch, which would wipe a handler stored there on every single call.
 +** Deliberately not an opaque "session" object either: Fossil's internals
-+** (g itself, the static Stmt cache, db_repository_filename()'s static
-+** zRepo, ...) are a process-wide singleton by 20+ years of design, not an
-+** oversight -- a handle-based API today would promise concurrent-instance
-+** semantics nothing underneath actually provides. Named fossil_embed_init()
-+** rather than a narrower fossil_exit-specific name so a future, distinctly
-+** per-repo-switch-lifetime fossil_embed_reset() (clearing zRepo and the
-+** versioned-settings cache -- not yet built) has an obvious sibling to sit
-+** next to, without renaming a public symbol later.
++** (g itself, the static Stmt cache, ...) are a process-wide singleton by
++** 20+ years of design, not an oversight -- a handle-based API today would
++** promise concurrent-instance semantics nothing underneath actually
++** provides. Named fossil_embed_init() rather than a narrower
++** fossil_exit-specific name so this handler and the growing family of
++** fossil_reset_*() per-command cache-invalidation functions (see db.c's
++** fossil_reset_repository_filename_cache(), printf.c's
++** fossil_reset_fatal_guard()) have an obvious place to be documented
++** together, without renaming a public symbol later.
 +**
 +** Contract: the handler MUST NOT return (fossil_exit() is NORETURN; ~200
 +** call sites across this tree assume control never comes back after it,
@@ -38,10 +36,13 @@
 +static void (*fossilEmbedExitHandler)(int) = 0;
 +void fossil_embed_init(void (*exitHandler)(int)){
 +  fossilEmbedExitHandler = exitHandler;
- }
- 
- /*
-@@ -74,6 +108,10 @@
++}
++
++/*
+ ** Exit.  Take care to close the database first.
+ */
+ NORETURN void fossil_exit(int rc){
+@@ -74,6 +109,10 @@
      fflush(stderr);
    }
  #endif
@@ -150,3 +151,55 @@
      }else{
        fossil_print("ok\n");
      }
+--- a/src/db.c
++++ b/src/db.c
+@@ -2783,12 +2783,35 @@
+ ** local database (the _FOSSIL_ or .fslckout database) must have already
+ ** been opened before this routine is called.
+ */
++/* fossil-see: was a function-local `static char *zRepo` inside
++** db_repository_filename() below; promoted to file scope so
++** fossil_reset_repository_filename_cache() (also new) can clear it between
++** commands. In a single-shot CLI process this memoize-once cache is
++** harmless (one process == one repository). In an embedded/FFI process
++** making repeated fossil_main() calls against DIFFERENT repositories, it
++** is not: g is memset() at the top of every fossil_main() call, but this
++** static survives for the life of the process, so every fossil_main() call
++** after the first that relies on db_open_repository(0)'s "use whatever
++** repository this checkout is for" path (i.e. every call that doesn't pass
++** an explicit repository path on the command line -- "add", "commit",
++** "status", etc.) silently reuses the FIRST repository this process ever
++** opened, regardless of which checkout is actually current. Observed
++** concretely: open repo A in one directory, open repo B (a clone) in
++** another, `add`+`commit` in B's checkout operate against A's repository
++** file instead, corrupting B's history with "an open branch named "trunk"
++** already exists" (A's trunk) because B's checkin lookups resolve against
++** A's blob table. Same bug class as fossil_fatal()'s reentrancy guard
++** above: a process-lifetime static, not a per-command one. */
++static char *dbRepositoryFilenameCache = 0;
++void fossil_reset_repository_filename_cache(void){
++  fossil_free(dbRepositoryFilenameCache);
++  dbRepositoryFilenameCache = 0;
++}
+ const char *db_repository_filename(void){
+-  static char *zRepo = 0;
+   assert( g.localOpen );
+   assert( g.zLocalRoot );
+-  if( zRepo==0 ){
+-    zRepo = db_lget("repository", 0);
++  if( dbRepositoryFilenameCache==0 ){
++    char *zRepo = db_lget("repository", 0);
+     if( zRepo && !file_is_absolute_path(zRepo) ){
+       char * zFree = zRepo;
+       zRepo = mprintf("%s%s", g.zLocalRoot, zRepo);
+@@ -2797,8 +2820,9 @@
+       zRepo = file_canonical_name_dup(zFree);
+       fossil_free(zFree);
+     }
++    dbRepositoryFilenameCache = zRepo;
+   }
+-  return zRepo;
++  return dbRepositoryFilenameCache;
+ }
+ 
+ /*

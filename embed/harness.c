@@ -51,6 +51,7 @@ extern int sqlite3_shutdown(void);
 extern void db_clear_delete_on_failure(void);   /* our 12-line db.c patch */
 extern void fossil_embed_init(void (*exitHandler)(int));  /* our exit-trap patch */
 extern void fossil_reset_fatal_guard(void);  /* our fossil_fatal() once-guard fix */
+extern void fossil_reset_repository_filename_cache(void);  /* our db_repository_filename() cache fix */
 
 static jmp_buf exit_jmp;
 static int in_command = 0;
@@ -107,6 +108,11 @@ static int fossil_cmd(int n, ...){
   ** testing and then gives an embedder "operation failed" with zero
   ** diagnostic text in the field. See embed/README.md. */
   fossil_reset_fatal_guard();
+  /* CRITICAL: without this, db_repository_filename() silently keeps
+  ** returning the FIRST repository this process ever opened, for every
+  ** later command that doesn't pass an explicit repository path -- the
+  ** cross-repo state bug. See embed/README.md. */
+  fossil_reset_repository_filename_cache();
   /* fshell does this between commands so sqlite3_config() in the next
   ** fossil_main() call starts from a clean slate. */
   sqlite3_shutdown();
