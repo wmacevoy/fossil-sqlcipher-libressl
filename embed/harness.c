@@ -50,6 +50,7 @@ extern int fossil_main(int argc, char **argv);
 extern int sqlite3_shutdown(void);
 extern void db_clear_delete_on_failure(void);   /* our 12-line db.c patch */
 extern void fossil_embed_init(void (*exitHandler)(int));  /* our exit-trap patch */
+extern void fossil_reset_fatal_guard(void);  /* our fossil_fatal() once-guard fix */
 
 static jmp_buf exit_jmp;
 static int in_command = 0;
@@ -97,6 +98,15 @@ static int fossil_cmd(int n, ...){
   ** fossil_fatal() deletes files created by earlier successful commands
   ** (observed: it deleted the repository). */
   db_clear_delete_on_failure();
+  /* CRITICAL: without this, fossil_fatal()'s reentrancy guard -- a plain
+  ** C static, never touched by fossil_main()'s per-call memset(&g,...) --
+  ** stays tripped forever after the FIRST fatal error this process ever
+  ** sees. Every fossil_fatal() after that still returns a nonzero rc (the
+  ** exit-trap keeps working), but silently prints no message at all,
+  ** which is exactly the kind of thing that looks like it's working in
+  ** testing and then gives an embedder "operation failed" with zero
+  ** diagnostic text in the field. See embed/README.md. */
+  fossil_reset_fatal_guard();
   /* fshell does this between commands so sqlite3_config() in the next
   ** fossil_main() call starts from a clean slate. */
   sqlite3_shutdown();

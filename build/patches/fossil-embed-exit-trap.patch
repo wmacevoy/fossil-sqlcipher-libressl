@@ -87,29 +87,54 @@
    if( once ) exit(1);
    once = 1;
    mainInFatalError = 1;
-@@ -1230,7 +1256,21 @@
+@@ -1225,13 +1251,44 @@
+   abort();
+   exit(rc);
+ }
++/*
++** fossil-see: was a function-local `static int once` inside fossil_fatal()
++** below; promoted to file scope so fossil_reset_fatal_guard() (also new)
++** can clear it between commands. Stock Fossil never needed to reset it:
++** a normal CLI process calls fossil_fatal() at most once, ever, before
++** exit() ends the process, so the guard's only realistic job there is
++** stopping fossil_fatal() from recursing into itself (e.g. if formatting/
++** printing the FIRST error itself triggers a second fossil_fatal() call
++** while still unwinding). An in-process/FFI embedding breaks that
++** assumption: many unrelated, SEQUENTIAL fossil_fatal() calls can happen
++** across many commands in one long-lived process, and the un-resettable
++** guard silently swallowed the message (not just the exit-trap
++** notification -- rc still came back nonzero) for every one of them
++** after the first. Easy to miss: it looks like the exit-trap patch is
++** working (the first fatal error prints fine and the process survives),
++** and only the SECOND fatal error reveals that every one after the first
++** is now silent. Embedding shims (see embed/harness.c) must call
++** fossil_reset_fatal_guard() as part of their per-command cleanup,
++** alongside the already-required db_clear_delete_on_failure(). See
++** embed/README.md.
++**
++** Deliberately NOT applying the same fix to fossil_panic()'s own `once`
++** guard just below -- see the comment there.
++*/
++static int fossilFatalOnce = 0;
++void fossil_reset_fatal_guard(void){
++  fossilFatalOnce = 0;
++}
++
+ NORETURN void fossil_fatal(const char *zFormat, ...){
+-  static int once = 0;
    va_list ap;
    char *z;
    int rc = 1;
 -  if( once ) exit(1);
+-  once = 1;
 +  /* fossil-see: route the reentrancy-guard bypass through fossil_exit(),
-+  ** not a raw exit(1). Two reasons, not just one:
-+  **   1. db_close() still needs to run -- this bypass skipped it before,
-+  **      same class of bug as every other unguarded exit()/abort() site.
-+  **   2. Without this, an embedding's registered exit handler (see
-+  **      fossil_embed_init() in util.c) silently stops being consulted
-+  **      after the FIRST fatal error in the process's lifetime -- `once`
-+  **      is a plain C static, never reset by fossil_main()'s per-call
-+  **      memset(&g,...), so every fatal error after the first would kill
-+  **      the whole host app with no chance to recover, even though the
-+  **      exit-trap patch looks like it's working (the first one works
-+  **      fine, only the second reveals the gap).
-+  ** Deliberately NOT applying the same change to fossil_panic()'s own
-+  ** `once` guard just below -- see the comment there. */
-+  if( once ) fossil_exit(1);
-   once = 1;
++  ** not a raw exit(1) -- db_close() still needs to run here, same class
++  ** of bug as every other unguarded exit()/abort() site. */
++  if( fossilFatalOnce ) fossil_exit(1);
++  fossilFatalOnce = 1;
    mainInFatalError = 1;
    va_start(ap, zFormat);
+   z = vmprintf(zFormat, ap);
 --- a/src/content.c
 +++ b/src/content.c
 @@ -989,7 +989,11 @@
