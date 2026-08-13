@@ -1,0 +1,127 @@
+--- a/src/util.c
++++ b/src/util.c
+@@ -61,6 +61,40 @@
+ #else
+   return fileno(p);
+ #endif
++}
++
++/*
++** fossil-see embedding hook (process lifetime, not per-repo): an in-process
++** host with no fork/exec available (e.g. an iOS FFI shim, where fork/exec
++** is forbidden outright) registers a handler here instead of getting an
++** unconditional libc exit(), which would kill the whole host application.
++**
++** Deliberately a bare static function pointer, not part of struct Global
++** (`g`) -- fossil_main() does `memset(&g,0,...)` before every command
++** dispatch, which would wipe a handler stored there on every single call.
++** Deliberately not an opaque "session" object either: Fossil's internals
++** (g itself, the static Stmt cache, db_repository_filename()'s static
++** zRepo, ...) are a process-wide singleton by 20+ years of design, not an
++** oversight -- a handle-based API today would promise concurrent-instance
++** semantics nothing underneath actually provides. Named fossil_embed_init()
++** rather than a narrower fossil_exit-specific name so a future, distinctly
++** per-repo-switch-lifetime fossil_embed_reset() (clearing zRepo and the
++** versioned-settings cache -- not yet built) has an obvious sibling to sit
++** next to, without renaming a public symbol later.
++**
++** Contract: the handler MUST NOT return (fossil_exit() is NORETURN; ~200
++** call sites across this tree assume control never comes back after it,
++** some relying on the compiler's noreturn-driven unreachable-code
++** elision). If it returns anyway, fall through to a real abort() rather
++** than continue into undefined behavior.
++**
++** What this does NOT cover -- read before assuming "the exit is trapped"
++** means every process-termination path is: see embed/README.md's
++** "Portable exit trap: what this patch does and does not cover".
++*/
++static void (*fossilEmbedExitHandler)(int) = 0;
++void fossil_embed_init(void (*exitHandler)(int)){
++  fossilEmbedExitHandler = exitHandler;
+ }
+ 
+ /*
+@@ -74,6 +108,10 @@
+     fflush(stderr);
+   }
+ #endif
++  if( fossilEmbedExitHandler ){
++    fossilEmbedExitHandler(rc);
++    abort();  /* handler contract violated: it must never return */
++  }
+   exit(rc);
+ }
+ 
+--- a/src/printf.c
++++ b/src/printf.c
+@@ -1210,6 +1210,32 @@
+   char z[1000];
+   static int once = 0;
+ 
++  /* fossil-see: deliberately NOT patched to route through fossil_exit()
++  ** or the embedding exit handler, on either the `once` bypass (this
++  ** line) or the abort() a few lines down. Two separate reasons:
++  **   1. Fossil's own doc comment above this function is explicit that
++  **      panic-class errors are meant to end in SIGABRT, unconditionally,
++  **      bypassing atexit -- this is "developer/admin bug, should never
++  **      happen" territory (see the guidance right above: "avoid for
++  **      ordinary usage, parameter, OOM and I/O errors"), not the
++  **      recoverable-input-error territory fossil_fatal() covers.
++  **      Silently redirecting that into "keep the host app alive" would
++  **      contradict what this function is documented to guarantee.
++  **   2. The `once` guard exists specifically to stop a SECOND panic
++  **      firing while the FIRST is still being handled (a recursive
++  **      panic-during-panic) -- i.e. exactly the situation where doing
++  **      LESS is safer. Routing this bypass through more machinery
++  **      (fossil_exit -> db_close -> ... -> possibly panicking again)
++  **      would work against the one thing this guard exists to prevent.
++  ** Net effect, stated plainly rather than left implicit: an in-process
++  ** embedding (see fossil_embed_init() in util.c) can still have its
++  ** whole host process killed by a fossil_panic() call, with no chance
++  ** to recover -- a known, accepted v1 gap, not an oversight. See
++  ** embed/README.md for which real code paths can actually reach this
++  ** (79 call sites; several are plausibly reachable from ordinary client
++  ** operation, e.g. delta-loop/DB-corruption checks in content.c) and
++  ** what auditing that gap requires before it's safe to ignore for real.
++  */
+   if( once ) exit(1);
+   once = 1;
+   mainInFatalError = 1;
+@@ -1230,7 +1256,21 @@
+   va_list ap;
+   char *z;
+   int rc = 1;
+-  if( once ) exit(1);
++  /* fossil-see: route the reentrancy-guard bypass through fossil_exit(),
++  ** not a raw exit(1). Two reasons, not just one:
++  **   1. db_close() still needs to run -- this bypass skipped it before,
++  **      same class of bug as every other unguarded exit()/abort() site.
++  **   2. Without this, an embedding's registered exit handler (see
++  **      fossil_embed_init() in util.c) silently stops being consulted
++  **      after the FIRST fatal error in the process's lifetime -- `once`
++  **      is a plain C static, never reset by fossil_main()'s per-call
++  **      memset(&g,...), so every fatal error after the first would kill
++  **      the whole host app with no chance to recover, even though the
++  **      exit-trap patch looks like it's working (the first one works
++  **      fine, only the second reveals the gap).
++  ** Deliberately NOT applying the same change to fossil_panic()'s own
++  ** `once` guard just below -- see the comment there. */
++  if( once ) fossil_exit(1);
+   once = 1;
+   mainInFatalError = 1;
+   va_start(ap, zFormat);
+--- a/src/content.c
++++ b/src/content.c
+@@ -989,7 +989,11 @@
+     zRes = db_text(0,"PRAGMA repository.%s_check", zType/*safe-for-%s*/);
+     if( fossil_strcmp(zRes,"ok")!=0 ){
+       fossil_print("%s_check failed!\n", zType);
+-      exit(1);
++      /* fossil-see: was a raw exit(1) -- a real, client-reachable bypass
++      ** of fossil_exit() (test-integrity --db-only/--quick), not gated
++      ** by server/CGI context. Route it through fossil_exit() so both
++      ** db_close() and an embedding's registered exit handler still run. */
++      fossil_exit(1);
+     }else{
+       fossil_print("ok\n");
+     }

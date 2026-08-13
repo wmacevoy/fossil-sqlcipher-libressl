@@ -7,16 +7,38 @@
 ** embedding on this shared, verified foundation. See ../README.md (this
 ** directory) for what's proven and what's still open.
 **
-** Simulates the iOS constraint on Linux: ONE process, no fork/exec for
-** client operations, fossil commands invoked repeatedly in-process via
-** fossil_main(), with exit() intercepted (linker --wrap) and turned into
-** a longjmp back to the harness -- exactly what a dart:ffi shim would do.
-** GNU ld only (see ../README.md "What's still open").
+** Simulates the iOS constraint: ONE process, no fork/exec for client
+** operations, fossil commands invoked repeatedly in-process via
+** fossil_main(), with exit() intercepted and turned into a longjmp back
+** to the harness -- exactly what a dart:ffi shim would do.
 **
-** Build (from a fossil-see build tree, after ./build/build.sh has run):
-**   objcopy --redefine-sym main=fossil_cli_main <fossil-src>/bld/main.o <fossil-src>/bld/main_h.o
-**   cc -o harness harness.c <fossil-src>/bld/*.o (main.o swapped for main_h.o) \
-**      -Wl,--wrap=exit -lresolv -lssl -lcrypto -lz -ldl -lpthread -lm
+** PORTABLE as of build/patches/fossil-embed-exit-trap.patch: the
+** interception happens inside Fossil's own fossil_exit() (util.c), via a
+** registered handler (fossil_embed_init()), not a linker trick -- no
+** GNU-ld-specific `-Wl,--wrap=exit` involved, so this now builds and
+** runs with Apple's linker too (the actual iOS-adjacent target this
+** whole exercise exists to unblock). See ../README.md's "Portable exit
+** trap" section for exactly what this does and does NOT cover (notably:
+** fossil_panic()'s abort() path is a documented, deliberate gap, not
+** covered by this or any exit()-based mechanism).
+**
+** Build (from a fossil-see build tree, after ./build/build.sh has run --
+** from within vendor/fossil, reusing the exact compile flags build.sh
+** just used to build everything else, visible in its own output):
+**   cc <same -I/-D flags build.sh used> -Dmain=fossil_cli_main \
+**      -o bld/main_h.o -c bld/main_.c
+**   cc -o harness ../../embed/harness.c EVERY_OBJECT_IN_bld_EXCEPT_main.o \
+**      -lresolv -lssl -lcrypto -lz -ldl -lpthread -lm
+** (Linux flags shown; macOS drops -ldl/-lresolv, see build.sh's own
+** platform branch for the exact list this project already maintains.)
+**
+** Recompiling main_.c with -Dmain=fossil_cli_main (rather than the
+** original recipe's `objcopy --redefine-sym`) is deliberate: objcopy is
+** a GNU-binutils tool, absent by default on macOS (no llvm-objcopy
+** either, confirmed via `xcrun --find`) -- the exact same portability
+** trap this whole file exists to get out from under. A compile-time
+** #define needs nothing beyond the C compiler already required to build
+** fossil-see itself, on every platform this project targets.
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,17 +49,21 @@
 extern int fossil_main(int argc, char **argv);
 extern int sqlite3_shutdown(void);
 extern void db_clear_delete_on_failure(void);   /* our 12-line db.c patch */
+extern void fossil_embed_init(void (*exitHandler)(int));  /* our exit-trap patch */
 
 static jmp_buf exit_jmp;
 static int in_command = 0;
 
-/* Every call to exit() inside fossil lands here instead. */
-void __real_exit(int);
-void __wrap_exit(int rc){
+/* Registered once, in main(), via fossil_embed_init() -- this is what a
+** real dart:ffi shim's own registered handler would do. */
+static void harness_exit_handler(int rc){
   if( in_command ){
     longjmp(exit_jmp, rc + 1000);   /* +1000 so rc==0 is distinguishable */
   }
-  __real_exit(rc);
+  /* exit() reached outside a tracked fossil_cmd() call (shouldn't happen
+  ** in this harness -- every fossil_main() invocation goes through
+  ** fossil_cmd() below -- but there's no jmp_buf to jump to if it does). */
+  exit(rc);
 }
 
 /* Run one fossil command in-process; returns its "exit code". */
@@ -94,6 +120,7 @@ int main(int argc, char **argv){
   fprintf(stderr, "--- %-40s rc=%d %s\n", desc, rc, rc==0?"OK":"FAIL"); \
   if(rc) fail++; }while(0)
 
+  fossil_embed_init(harness_exit_handler);
   system("rm -rf /tmp/ffi-lab && mkdir -p /tmp/ffi-lab/wc");
 
   CHECK("version",            fossil_cmd(1, "version"));

@@ -178,6 +178,19 @@ else
     echo "  WARN: patches/fossil-db-embed.patch absent - db_clear_delete_on_failure() will not be available for future embedded/FFI use"
 fi
 
+# build/patches/fossil-embed-exit-trap.patch adds fossil_embed_init(), the
+# portable (non-GNU-ld-specific) exit trap needed for in-process/FFI
+# embedding on platforms with no --wrap=exit equivalent (Apple's linker,
+# critically -- this is what ../embed/harness.c's `-Wl,--wrap=exit` cannot
+# do on iOS). Purely additive - handler defaults to unset, byte-identical
+# stock CLI behavior when not registered. Safe to always apply.
+if [ -f "$SCRIPT_DIR/patches/fossil-embed-exit-trap.patch" ]; then
+    echo "  applying fossil-embed-exit-trap.patch"
+    ( cd "$FOSSIL_SRC" && patch -p1 < "$SCRIPT_DIR/patches/fossil-embed-exit-trap.patch" )
+else
+    echo "  WARN: patches/fossil-embed-exit-trap.patch absent - fossil_embed_init() will not be available for future embedded/FFI use"
+fi
+
 # -- Step 3: Configure Fossil -------------------------------------------
 echo "==> Configuring Fossil"
 # -DSQLITE_HAS_CODEC here (not just in SEE_FLAGS.1 in main.mk) matters:

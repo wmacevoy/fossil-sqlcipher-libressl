@@ -16,3 +16,6 @@ manifest.uuid
 build/dist/
 vendor/libressl-cache/
 vendor/libressl-build-out/
+
+# viki's local derived cache (D-10: never source of truth, never committed)
+.viki/

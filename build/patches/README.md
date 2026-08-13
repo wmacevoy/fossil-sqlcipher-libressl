@@ -10,6 +10,8 @@ Small patches applied to the upstream Fossil source tree during the build. Each 
 
 - **`fossil-db-embed.patch`** — adds `db_clear_delete_on_failure()`, exposing one new function; changes no existing behavior. Needed for any future in-process/embedded use (repeated `fossil_main()` calls in one process must clear stale delete-on-failure registrations between calls, or a later failure deletes files created by an earlier successful command — including the repository itself). See `../../embed/README.md`.
 
+- **`fossil-embed-exit-trap.patch`** — adds `fossil_embed_init()` (registers a handler `fossil_exit()` calls instead of libc `exit()`, for in-process/FFI embeddings with no fork/exec available, e.g. iOS); routes `fossil_fatal()`'s reentrancy-guard bypass and `content.c`'s `test-integrity --db-only`/`--quick` check through `fossil_exit()` instead of raw `exit()`. Deliberately does **not** touch `fossil_panic()`'s `abort()` path (documented as an intentional, accepted v1 gap, not an oversight — see the comment at its call site and `../../embed/README.md`). No effect on stock CLI behavior (handler defaults to unset). See `../../embed/README.md`.
+
 ## Conventions
 
 - One patch per concern. Don't bundle unrelated edits.
