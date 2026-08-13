@@ -1,0 +1,137 @@
+--- a/src/db.c	2026-08-12 22:43:13
++++ b/src/db.c	2026-08-12 22:43:13
+@@ -2117,13 +2117,97 @@
+   return processId;
+ }
+ #endif /* USE_SEE */
++
++/*
++** Decrypt the group-mode master key from <repo-dir>/keys/master.key.asc
++** via gpg shell-out. zDbFile is the path to the .efossil database file;
++** the "keys" directory sits next to it.
++**
++** Returns a malloc'd hex string (the SQLCipher passphrase) on success,
++** or NULL on any failure. Caller frees with fossil_free() after zeroizing.
++**
++** This is fossil-see's hook into Fossil's SEE encryption scaffolding.
++** See docs/SECURITY.md in this repo for the full design.
++*/
++#if USE_SEE
++static char *see_decrypt_master_key(const char *zDbFile){
++  char *zDir = file_dirname(zDbFile);
++  char *zKeyPath = mprintf("%s/keys/master.key.asc",
++                           (zDir && zDir[0]) ? zDir : ".");
++  fossil_free(zDir);
++
++  if( !file_isfile(zKeyPath, ExtFILE) ){
++    fossil_free(zKeyPath);
++    return 0;
++  }
++
++  /* Single-quote the path for the shell, doubling any internal apostrophes
++  ** to neutralize them. The path is fully controlled by Fossil's own
++  ** repo-resolution, but defensive quoting is cheap. */
++  Blob shellPath = BLOB_INITIALIZER;
++  blob_append_char(&shellPath, '\'');
++  for(const char *q = zKeyPath; *q; q++){
++    if( *q == '\'' ){
++      blob_append(&shellPath, "'\\''", 4);
++    } else {
++      blob_append_char(&shellPath, *q);
++    }
++  }
++  blob_append_char(&shellPath, '\'');
++
++  /* `gpg --decrypt --output - <path>`. No --batch so gpg-agent can broker
++  ** interactive passphrase entry and smart-card prompts when needed. */
++  char *zCmd = mprintf("gpg --decrypt --output - %s 2>/dev/null",
++                       blob_str(&shellPath));
++  blob_reset(&shellPath);
++  fossil_free(zKeyPath);
++
++  FILE *pipe = popen(zCmd, "r");
++  fossil_free(zCmd);
++  if( !pipe ) return 0;
++
++  Blob out = BLOB_INITIALIZER;
++  char buf[1024];
++  size_t n;
++  while( (n = fread(buf, 1, sizeof(buf), pipe)) > 0 ){
++    blob_append(&out, buf, (int)n);
++  }
++  int rc = pclose(pipe);
++  if( rc != 0 ){
++    fossil_secure_zero(blob_buffer(&out), blob_size(&out));
++    blob_reset(&out);
++    return 0;
++  }
+ 
++  /* Trim trailing whitespace (gpg appends a newline by default). */
++  while( blob_size(&out) > 0 ){
++    char c = blob_buffer(&out)[blob_size(&out)-1];
++    if( c=='\n' || c=='\r' || c==' ' || c=='\t' ){
++      blob_resize(&out, blob_size(&out)-1);
++    } else {
++      break;
++    }
++  }
++
++  char *zResult = fossil_strdup(blob_str(&out));
++  fossil_secure_zero(blob_buffer(&out), blob_size(&out));
++  blob_reset(&out);
++  return zResult;
++}
++#endif
++
+ /*
+ ** If the database file zDbFile has a name that suggests that it is
+ ** encrypted, then prompt for the database encryption key and return it
+ ** in the blob *pKey.  Or, if the encryption key has previously been
+ ** requested, just return a copy of the previous result.  The blob in
+ ** *pKey must be initialized.
++**
++** fossil-see PATCH: replaces the prompt with a mode-aware key source:
++**   1. FOSSIL_SEE_KEY env var (escape hatch, documented as testing-only)
++**   2. gpg-decrypt <repo-dir>/keys/master.key.asc (group-key mode)
++**   3. fall back to Fossil's original prompt only if FOSSIL_SEE_STOCK_PROMPT
++**      is set (compatibility escape hatch)
+ */
+ static void db_maybe_obtain_encryption_key(
+   const char *zDbFile,   /* Name of the database file */
+@@ -2135,10 +2219,32 @@
+     if( zKey ){
+       blob_set(pKey, zKey);
+     }else{
+-      char *zPrompt = mprintf("\rencryption key for '%s': ", zDbFile);
+-      prompt_for_password(zPrompt, pKey, 0);
+-      fossil_free(zPrompt);
+-      db_set_saved_encryption_key(pKey);
++      /* fossil-see mode-aware key source. */
++      char *zEnvKey = fossil_getenv("FOSSIL_SEE_KEY");
++      if( zEnvKey && zEnvKey[0] ){
++        blob_set(pKey, zEnvKey);
++        db_set_saved_encryption_key(pKey);
++      }else{
++        char *zGpgKey = see_decrypt_master_key(zDbFile);
++        if( zGpgKey ){
++          blob_set(pKey, zGpgKey);
++          fossil_secure_zero(zGpgKey, strlen(zGpgKey));
++          fossil_free(zGpgKey);
++          db_set_saved_encryption_key(pKey);
++        }else if( fossil_getenv("FOSSIL_SEE_STOCK_PROMPT") ){
++          char *zPrompt = mprintf("\rencryption key for '%s': ", zDbFile);
++          prompt_for_password(zPrompt, pKey, 0);
++          fossil_free(zPrompt);
++          db_set_saved_encryption_key(pKey);
++        }else{
++          fossil_fatal(
++            "cannot obtain encryption key for '%s': "
++            "set FOSSIL_SEE_KEY to a key, place an encrypted "
++            "keys/master.key.asc next to the repo, or set "
++            "FOSSIL_SEE_STOCK_PROMPT=1 to fall back to a manual prompt",
++            zDbFile);
++        }
++      }
+     }
+   }
+ #endif

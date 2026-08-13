@@ -1,0 +1,36 @@
+Fix `fossil server` on SEE/SQLCipher builds: the saved-key pointer check
+defeats every key source.
+
+cmd_webserver calls db_setup_for_saved_encryption_key() at startup, which
+pre-allocates a *zeroed* mlock'd page (so request children can inherit the
+key) and points zSavedKey at it. db_maybe_obtain_encryption_key() then sees a
+non-NULL saved key, skips the FOSSIL_SEE_KEY / gpg / prompt chain, and applies
+an empty key: every repo open fails with SQLITE_NOTADB and the server dies
+with "not a valid repository". Fossil already ships the validity check
+(db_have_saved_encryption_key); this patch consults it. On first open the
+real key is then copied into the pre-allocated secure page by
+db_set_saved_encryption_key(), so forked children inherit it as intended.
+
+Stock Fossil (verified at 2.29 [7a40eb9748]) has the identical unvalidated
+check.
+
+Apply after fossil-db-key.patch (also applies to stock src/db.c with offset).
+Target revision: FOSSIL_REF in versions.env.
+
+--- a/src/db.c
++++ b/src/db.c
+@@ -2216,7 +2216,13 @@
+ ){
+ #if USE_SEE
+   if( sqlite3_strglob("*.efossil", zDbFile)==0 ){
+-    char *zKey = db_get_saved_encryption_key();
++    /* `fossil server` pre-allocates a zeroed secure page for the key
++    ** (db_setup_for_saved_encryption_key), which is non-NULL but not yet a
++    ** valid key.  Consult the validator, not just the pointer, or every key
++    ** source below is silently skipped in server mode and repos fail to
++    ** open with SQLITE_NOTADB. */
++    char *zKey = db_have_saved_encryption_key()
++                   ? db_get_saved_encryption_key() : 0;
+     if( zKey ){
+       blob_set(pKey, zKey);
+     }else{

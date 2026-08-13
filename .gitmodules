@@ -1,0 +1,6 @@
+[submodule "vendor/sqlcipher-libressl"]
+	path = vendor/sqlcipher-libressl
+	url = https://github.com/wmacevoy/sqlcipher-libressl.git
+[submodule "vendor/fossil"]
+	path = vendor/fossil
+	url = https://github.com/drhsqlite/fossil-mirror.git

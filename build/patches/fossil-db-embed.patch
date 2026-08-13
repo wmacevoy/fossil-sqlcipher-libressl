@@ -1,0 +1,25 @@
+diff --git a/src/db.c b/src/db.c
+index 43f6081..856ff81 100644
+--- a/src/db.c
++++ b/src/db.c
+@@ -191,6 +191,20 @@ static struct DbLocalData {
+ /*
+ ** Arrange for the given file to be deleted on a failure.
+ */
++/*
++** Clear the delete-on-failure list.  Needed by embedded/in-process use
++** (repeated fossil_main() calls in one process): entries registered by a
++** prior successful command must not survive into later commands, or a
++** later failure will delete files belonging to an earlier operation.
++*/
++void db_clear_delete_on_failure(void){
++  while( db.nDeleteOnFail>0 ){
++    db.nDeleteOnFail--;
++    fossil_free(db.azDeleteOnFail[db.nDeleteOnFail]);
++    db.azDeleteOnFail[db.nDeleteOnFail] = 0;
++  }
++}
++
+ void db_delete_on_failure(const char *zFilename){
+   assert( db.nDeleteOnFail<count(db.azDeleteOnFail) );
+   if( zFilename==0 ) return;

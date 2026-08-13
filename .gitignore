@@ -1,0 +1,18 @@
+# OS / editor junk
+.DS_Store
+*~
+\#*\#
+.\#*
+
+# Fossil checkout artifacts (in case a fossil checkout is mixed with this git tree)
+*.fossil
+*.efossil
+_FOSSIL_
+.fslckout
+manifest
+manifest.uuid
+
+# Build artifacts
+build/dist/
+vendor/libressl-cache/
+vendor/libressl-build-out/
