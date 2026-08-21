@@ -1,0 +1,165 @@
+name: libfossilsee
+
+# Builds libfossilsee and runs embed/test-fossilsee.c against it.
+#
+# WHY THIS REPO NEEDS CI AT ALL, when it never had any: embed/fossilsee.c
+# reaches into Fossil's internals (g.nameOfExe, db_open_repository(),
+# add_content_sql_commands(), db_unsave_encryption_key()) and MIRRORS a
+# slice of fossil_main()'s prologue rather than sharing it. embed/README.md
+# says so plainly: a future Fossil that adds a required initialisation step
+# will COMPILE CLEAN and fail at runtime. A compile is therefore not
+# evidence here; only running the test is. That is the whole reason this
+# file exists.
+#
+# WHY BOTH PLATFORMS: the library was developed on macOS arm64, so the ELF
+# path (-shared/.so, and -ldl, which Darwin does not need) had no coverage
+# at all. Linux is not redundant here -- it is the half that was untested.
+
+on:
+  push:
+    branches: [main, libfossilsee]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  lib:
+    name: libfossilsee (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x86_64
+            os: ubuntu-latest
+            container: debian:bookworm
+            # Same list the sibling `viki` project measured for building
+            # fossil-see in a bare debian:bookworm container: cmake is
+            # required by LibreSSL's build (step 0 of build/build.sh) and
+            # zlib1g-dev by Fossil's configure ("Error: zlib.h not found",
+            # ~90s in). sqlite3 is here for the ENCRYPTION control below,
+            # which is the assertion that would otherwise silently degrade
+            # into "we tested a plaintext database".
+            deps: |
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                build-essential curl unzip ca-certificates git \
+                cmake zlib1g-dev sqlite3 tcl
+          - label: macos-arm64
+            os: macos-latest
+            container: ""
+            deps: |
+              command -v cmake >/dev/null 2>&1 || brew install cmake
+
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container || null }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      # The debian container image ships no git, and actions/checkout
+      # silently falls back to a REST tarball without one -- which fetches
+      # no submodules, so vendor/fossil would be an empty directory and the
+      # build would fail much later with a confusing error.
+      - name: Pre-install git (container only)
+        if: ${{ matrix.container != '' }}
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: ${{ matrix.deps }}
+
+      # Builds LibreSSL, SQLCipher and Fossil 2.28, and applies this
+      # project's four patches to vendor/fossil. libfossilsee cannot be
+      # linked without the objects this leaves in vendor/fossil/bld/.
+      - name: Build fossil-see
+        run: ./build/build.sh
+
+      - name: Build libfossilsee
+        run: ./embed/build-lib.sh
+
+      # Proves the library can be LOADED AT RUNTIME and its entry points
+      # resolved by name -- the access pattern the sibling viki project
+      # actually uses (it dlopen()s this, never links it), and the one a
+      # successful link of test-fossilsee does NOT prove.
+      #
+      # This replaced an `nm`-grep version that passed locally on macOS and
+      # failed on the macOS runner at the first symbol, with stderr
+      # discarded so the log could not say why. dlopen/dlsym carry real
+      # error strings and have no output format to parse.
+      - name: Check the library can be dlopen'd
+        run: |
+          cd build/dist
+          if [ -f libfossilsee.dylib ]; then LIB=libfossilsee.dylib; else LIB=libfossilsee.so; fi
+          ./check-dlopen "./$LIB"
+
+      # Plants the two repositories test-fossilsee needs: one plaintext and
+      # one encrypted. The encrypted one uses a RAW x'<64 hex>' key, which
+      # SQLCipher takes verbatim -- no PBKDF2, ~52x cheaper per open.
+      - name: Plant test repositories
+        run: |
+          set -eu
+          export FOSSIL_HOME="$PWD/ci-home"; mkdir -p "$FOSSIL_HOME"
+          export USER=viki
+          FOSSIL="$PWD/build/dist/fossil-see"
+          KEYHEX=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          mkdir -p ci-lab/wc-plain ci-lab/wc-enc
+
+          "$FOSSIL" init "$PWD/ci-lab/plain.fossil" -A viki
+          ( cd ci-lab/wc-plain && "$FOSSIL" open "$PWD/../plain.fossil" \
+            && printf 'six horses at site two\n' > n.md \
+            && "$FOSSIL" add n.md \
+            && "$FOSSIL" commit -m "a note" --user viki )
+
+          export FOSSIL_SEE_KEY="x'${KEYHEX}'"
+          "$FOSSIL" init "$PWD/ci-lab/enc.efossil" -A viki
+          ( cd ci-lab/wc-enc && "$FOSSIL" open "$PWD/../enc.efossil" \
+            && printf 'hay delivered to site four\n' > e.md \
+            && "$FOSSIL" add e.md \
+            && "$FOSSIL" commit -m "an encrypted note" --user viki )
+
+          # CONTROL, and not a formality. Every encryption-related
+          # assertion in test-fossilsee is vacuous if this file is really
+          # plaintext -- "wrong key -> clean failure" passes trivially
+          # against a database that never needed a key. Fail here instead.
+          if [ "$(head -c 15 ci-lab/enc.efossil)" = "SQLite format 3" ]; then
+            echo "::error title=not encrypted::init wrote a PLAINTEXT repo to a .efossil name; every crypto assertion below would be meaningless"
+            exit 1
+          fi
+          echo "ok: *.efossil is ciphertext"
+
+      - name: Run test-fossilsee
+        run: |
+          set -eo pipefail
+          export FOSSIL_HOME="$PWD/ci-home"
+          KEYHEX=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          ./build/dist/test-fossilsee \
+              "$PWD/ci-lab/plain.fossil" \
+              "$PWD/ci-lab/enc.efossil" \
+              "x'${KEYHEX}'" 2>&1 | tee test.out
+
+          # test-fossilsee already exits nonzero on any failure, and
+          # `set -o pipefail` keeps tee from masking that. This second
+          # check is for the other failure mode: a build so broken that it
+          # prints nothing and still exits 0. A test that ran zero
+          # assertions must not read as green.
+          grep -qE '^[0-9]+ passed, 0 failed$' test.out || {
+            echo "::error title=no clean tally::test-fossilsee did not report a passing tally"
+            exit 1
+          }
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### libfossilsee -- ${{ matrix.label }}"
+            echo
+            if [ -f test.out ]; then tail -3 test.out; else echo "did not reach the test step"; fi
+          } >> "$GITHUB_STEP_SUMMARY"

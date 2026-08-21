@@ -19,3 +19,4 @@ vendor/libressl-build-out/
 
 # viki's local derived cache (D-10: never source of truth, never committed)
 .viki/
+build/libobj/

@@ -116,6 +116,32 @@ fi
 [ -f "$SQLCIPHER_DIR/sqlite3.c" ] || { echo "ERR: sqlite3.c not produced"; exit 1; }
 
 # -- Step 2: Swap SQLCipher into Fossil source tree --------------------
+# apply_patch <file> -- apply a patch IDEMPOTENTLY.
+#
+# `patch -p1 < f` on an already-patched tree prints "Reversed (or
+# previously applied) patch detected!  Assume -R? [y]" and, with no tty to
+# answer it, takes the default and REVERSES the patch -- silently undoing
+# the very change it was asked to make. Re-running this script then leaves
+# vendor/fossil half-patched and the build fails much later with a
+# confusing error. Measured, not theorised: it corrupted the tree here on
+# 2026-08-21 and the recovery was `git -C vendor/fossil checkout -- . &&
+# git clean -fd`.
+#
+# --forward never reverses. The dry runs distinguish the three cases that
+# matter -- applies cleanly, already applied, does not apply at all -- so
+# the third is a hard error instead of being folded into the second.
+apply_patch() {
+    _p="$1"
+    if patch -p1 --forward --dry-run < "$_p" >/dev/null 2>&1; then
+        patch -p1 --forward < "$_p"
+    elif patch -p1 --reverse --dry-run < "$_p" >/dev/null 2>&1; then
+        echo "    (already applied, skipping)"
+    else
+        echo "ERR: $_p does not apply to this tree, and is not already applied" >&2
+        exit 1
+    fi
+}
+
 echo "==> Patching Fossil source"
 cp "$SQLCIPHER_DIR/sqlite3.c" "$FOSSIL_SRC/extsrc/sqlite3-see.c"
 cp "$SQLCIPHER_DIR/sqlite3.h" "$FOSSIL_SRC/extsrc/sqlite3.h"
@@ -145,7 +171,7 @@ awk -v old="$SEE_OLD" -v new="$SEE_NEW" '
 # and ../docs/SECURITY.md for the design.
 if [ -f "$SCRIPT_DIR/patches/fossil-db-key.patch" ]; then
     echo "  applying fossil-db-key.patch"
-    ( cd "$FOSSIL_SRC" && patch -p1 < "$SCRIPT_DIR/patches/fossil-db-key.patch" )
+    ( cd "$FOSSIL_SRC" && apply_patch "$SCRIPT_DIR/patches/fossil-db-key.patch" )
 else
     echo "  WARN: patches/fossil-db-key.patch absent - built binary will use Fossil's stock SEE prompt-for-passphrase behavior"
 fi
@@ -161,7 +187,7 @@ fi
 # (drafted for fossil-scm.org, not yet filed).
 if [ -f "$SCRIPT_DIR/patches/fossil-server-key-validator.patch" ]; then
     echo "  applying fossil-server-key-validator.patch"
-    ( cd "$FOSSIL_SRC" && patch -p1 < "$SCRIPT_DIR/patches/fossil-server-key-validator.patch" )
+    ( cd "$FOSSIL_SRC" && apply_patch "$SCRIPT_DIR/patches/fossil-server-key-validator.patch" )
 else
     echo "  WARN: patches/fossil-server-key-validator.patch absent - 'fossil-see server' will fail to open *.efossil repos (SQLITE_NOTADB); one-shot CLI use is unaffected"
 fi
@@ -173,7 +199,7 @@ fi
 # apply.
 if [ -f "$SCRIPT_DIR/patches/fossil-db-embed.patch" ]; then
     echo "  applying fossil-db-embed.patch"
-    ( cd "$FOSSIL_SRC" && patch -p1 < "$SCRIPT_DIR/patches/fossil-db-embed.patch" )
+    ( cd "$FOSSIL_SRC" && apply_patch "$SCRIPT_DIR/patches/fossil-db-embed.patch" )
 else
     echo "  WARN: patches/fossil-db-embed.patch absent - db_clear_delete_on_failure() will not be available for future embedded/FFI use"
 fi
@@ -186,7 +212,7 @@ fi
 # stock CLI behavior when not registered. Safe to always apply.
 if [ -f "$SCRIPT_DIR/patches/fossil-embed-exit-trap.patch" ]; then
     echo "  applying fossil-embed-exit-trap.patch"
-    ( cd "$FOSSIL_SRC" && patch -p1 < "$SCRIPT_DIR/patches/fossil-embed-exit-trap.patch" )
+    ( cd "$FOSSIL_SRC" && apply_patch "$SCRIPT_DIR/patches/fossil-embed-exit-trap.patch" )
 else
     echo "  WARN: patches/fossil-embed-exit-trap.patch absent - fossil_embed_init() will not be available for future embedded/FFI use"
 fi
@@ -201,6 +227,19 @@ echo "==> Configuring Fossil"
 # compile unit never sees them -> implicit-declaration build failure.
 # CFLAGS passed to configure flows into every compile unit via TCCFLAGS, so
 # this is the one place that reaches db.c as well as sqlite3.o/shell.o.
+#
+# -fPIC is here for embed/build-lib.sh, which links libfossilsee.so from
+# these same objects. ELF refuses that outright without it -- measured in
+# CI on linux-x86_64: "relocation R_X86_64_PC32 against symbol stderr can
+# not be used when making a shared object; recompile with -fPIC". Mach-O
+# does not care, which is exactly why this went unnoticed while the
+# library was developed on macOS.
+#
+# It goes HERE rather than in build-lib.sh on purpose. Eight of the 158
+# objects (sqlite3-see.o, shell.o, th*.o, pikchr.o, cson_amalgamation.o,
+# linenoise.o) are built from extsrc/ with per-file flags this script does
+# not spell out; recompiling them in build-lib.sh would mean duplicating a
+# flag list that would then silently drift. One flag, one place.
 (
     cd "$FOSSIL_SRC"
     ./configure \
@@ -208,7 +247,7 @@ echo "==> Configuring Fossil"
         --with-see=1 \
         --json \
         --internal-sqlite=1 \
-        CFLAGS="-DSQLCIPHER_CRYPTO_OPENSSL -DSQLITE_HAS_CODEC -O2" \
+        CFLAGS="-DSQLCIPHER_CRYPTO_OPENSSL -DSQLITE_HAS_CODEC -O2 -fPIC" \
         LIBS="$LIBRESSL_PREFIX/lib/libssl.a $LIBRESSL_PREFIX/lib/libcrypto.a"
 )
 
