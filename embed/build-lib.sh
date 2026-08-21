@@ -55,13 +55,19 @@ echo "build-lib: linking static libfossilsee.a"
 ar rcs "$OUT/libfossilsee.a" "$LIBOBJ/fossilsee.o" "$LIBOBJ/main_h.o" $OBJS
 
 case "$(uname -s)" in
-  Darwin) SOEXT=dylib; SOFLAG="-dynamiclib" ;;
-  *)      SOEXT=so;    SOFLAG="-shared" ;;
+  Darwin) SOEXT=dylib; SOFLAG="-dynamiclib"; DL_LIB="" ;;
+  # glibc needs -ldl for dlopen; it is inside libSystem on macOS, where
+  # naming it fails the link outright.
+  *)      SOEXT=so;    SOFLAG="-shared";     DL_LIB="-ldl" ;;
 esac
 
 echo "build-lib: linking shared libfossilsee.$SOEXT"
 # shellcheck disable=SC2086
 cc $SOFLAG -o "$OUT/libfossilsee.$SOEXT" "$LIBOBJ/fossilsee.o" "$LIBOBJ/main_h.o" $OBJS $LIB -lpthread -lm
+
+echo "build-lib: building check-dlopen (RUNTIME loading, which is how the"
+echo "           sibling viki project actually consumes this library)"
+cc -O2 -I"$HERE" -o "$OUT/check-dlopen" "$HERE/check-dlopen.c" $DL_LIB
 
 echo "build-lib: building test-fossilsee (links the SHARED library, so a"
 echo "           missing/incompatible .$SOEXT fails loudly here, not later)"

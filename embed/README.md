@@ -97,6 +97,22 @@ Findings from a dedicated review pass (2026-08-13), not yet acted on in code:
 
 - **The prologue is mirrored, not shared.** `fs_prime_globals()` copies a slice of `fossil_main()`'s setup. A future Fossil that adds a required init step will compile clean and fail at runtime — the `g.nameOfExe` segfault is exactly what that failure looks like. The durable fix is a `fossil_embed_open_repository()` patched into `main.c` beside `fossil_main()`, sharing the prologue instead of duplicating it. Not done.
 
+### Building it
+
+`build/build.sh` then `embed/build-lib.sh`. Two things that are not obvious:
+
+- **Fossil must be compiled `-fPIC`**, which `build/build.sh` now passes via
+  `configure CFLAGS`. ELF refuses to link a shared library from non-PIC
+  objects outright (`relocation R_X86_64_PC32 against symbol 'stderr' can
+  not be used when making a shared object`); Mach-O does not care, which is
+  exactly why this was invisible while the library was developed on macOS
+  and only surfaced the first time CI ran the Linux leg. The flag lives in
+  `build.sh` rather than `build-lib.sh` because 8 of the 158 objects come
+  from `extsrc/` with per-file flags `build-lib.sh` does not spell out —
+  recompiling them there would duplicate a flag list that would then drift.
+- `embed/build-lib.sh` keeps its own objects **out of** `vendor/fossil/bld/`,
+  so a later fossil link cannot pick up a second `main()`.
+
 ### Measured: in-process vs subprocess
 
 On an encrypted (`.efossil`) repo opened with a **raw** `x'<64 hex>'` key, 50 iterations of `SELECT uuid FROM blob;`:

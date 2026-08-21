@@ -85,24 +85,20 @@ jobs:
       - name: Build libfossilsee
         run: ./embed/build-lib.sh
 
-      # The library must not have picked up a link-time dependency on
-      # anything outside this tree, and must export the ABI entry point a
-      # dlopen()ing caller resolves FIRST -- viki refuses to call anything
-      # else until fossilsee_abi() has agreed with it, so a library missing
-      # that symbol is one viki will silently ignore.
-      - name: Check exported symbols
+      # Proves the library can be LOADED AT RUNTIME and its entry points
+      # resolved by name -- the access pattern the sibling viki project
+      # actually uses (it dlopen()s this, never links it), and the one a
+      # successful link of test-fossilsee does NOT prove.
+      #
+      # This replaced an `nm`-grep version that passed locally on macOS and
+      # failed on the macOS runner at the first symbol, with stderr
+      # discarded so the log could not say why. dlopen/dlsym carry real
+      # error strings and have no output format to parse.
+      - name: Check the library can be dlopen'd
         run: |
           cd build/dist
           if [ -f libfossilsee.dylib ]; then LIB=libfossilsee.dylib; else LIB=libfossilsee.so; fi
-          echo "== $LIB =="
-          for sym in fossilsee_abi fossilsee_open fossilsee_close fossilsee_sql fossilsee_errmsg; do
-            if nm -g "$LIB" 2>/dev/null | grep -qE "T _?$sym$"; then
-              echo "ok: exports $sym"
-            else
-              echo "::error title=missing export::$LIB does not export $sym"
-              exit 1
-            fi
-          done
+          ./check-dlopen "./$LIB"
 
       # Plants the two repositories test-fossilsee needs: one plaintext and
       # one encrypted. The encrypted one uses a RAW x'<64 hex>' key, which
