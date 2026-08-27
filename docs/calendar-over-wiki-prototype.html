@@ -1,0 +1,1011 @@
+<title>Bitemporal Calendar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+:root{
+  --bg:#f6f8f7; --surface:#ffffff; --surface-2:#edf1f0; --surface-3:#e3e9e7;
+  --ink:#141f1d; --ink-2:#586764; --ink-3:#8b9995;
+  --line:#dae1df; --line-2:#c3cecb;
+  --accent:#0d6e63; --accent-ink:#ffffff; --accent-soft:#d6e9e6;
+  --cal-a:#0d6e63; --cal-a-soft:#d6e9e6;
+  --cal-b:#4d5fb8; --cal-b-soft:#dee2f6;
+  --hist:#8d5c0c; --hist-soft:#f4e7cc; --hist-line:#d9b774;
+  --cancel:#9a3f3f;
+  --shadow:0 1px 2px rgba(20,31,29,.06), 0 6px 18px rgba(20,31,29,.05);
+  --r:7px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0c1312; --surface:#131c1b; --surface-2:#1a2523; --surface-3:#22302d;
+    --ink:#e2eae8; --ink-2:#93a3a0; --ink-3:#657572;
+    --line:#25332f; --line-2:#33443f;
+    --accent:#54c8b8; --accent-ink:#06201c; --accent-soft:#123330;
+    --cal-a:#54c8b8; --cal-a-soft:#123330;
+    --cal-b:#9aa8ee; --cal-b-soft:#1c2145;
+    --hist:#dfa94e; --hist-soft:#332711; --hist-line:#6b5324;
+    --cancel:#d98080;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0c1312; --surface:#131c1b; --surface-2:#1a2523; --surface-3:#22302d;
+  --ink:#e2eae8; --ink-2:#93a3a0; --ink-3:#657572;
+  --line:#25332f; --line-2:#33443f;
+  --accent:#54c8b8; --accent-ink:#06201c; --accent-soft:#123330;
+  --cal-a:#54c8b8; --cal-a-soft:#123330;
+  --cal-b:#9aa8ee; --cal-b-soft:#1c2145;
+  --hist:#dfa94e; --hist-soft:#332711; --hist-line:#6b5324;
+  --cancel:#d98080;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.3);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:Archivo,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:14px; line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:3px}
+button{font:inherit; color:inherit; cursor:pointer}
+
+/* ---------- shell ---------- */
+.app{display:flex; flex-direction:column; min-height:100vh}
+
+.topbar{
+  display:flex; align-items:baseline; gap:20px; flex-wrap:wrap;
+  padding:16px 24px; border-bottom:1px solid var(--line); background:var(--surface);
+}
+.brand{display:flex; align-items:baseline; gap:10px}
+.brand h1{margin:0; font-size:17px; font-weight:700; letter-spacing:-.01em}
+.brand .sub{font-size:12px; color:var(--ink-3)}
+.topbar .spacer{flex:1}
+
+.seg{display:inline-flex; border:1px solid var(--line-2); border-radius:var(--r); overflow:hidden; background:var(--surface-2)}
+.seg button{
+  border:0; background:transparent; padding:5px 11px; font-size:12px; font-weight:500;
+  color:var(--ink-2); border-right:1px solid var(--line-2);
+}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--accent); color:var(--accent-ink)}
+.seg-label{font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-3); margin-right:8px}
+
+.warn{
+  display:inline-flex; align-items:center; gap:7px; font-size:12px;
+  padding:4px 10px; border-radius:20px;
+  background:var(--hist-soft); color:var(--hist); border:1px solid var(--hist-line);
+}
+.warn .dot{width:6px; height:6px; border-radius:50%; background:currentColor; flex:none}
+
+.main{display:grid; grid-template-columns:250px minmax(0,1fr) 360px; gap:0; flex:1; align-items:stretch}
+
+/* ---------- rail ---------- */
+.rail{border-right:1px solid var(--line); padding:20px 18px; display:flex; flex-direction:column; gap:22px; background:var(--surface)}
+.rail h2, .insp h2{
+  margin:0 0 10px; font-size:11px; font-weight:600; text-transform:uppercase;
+  letter-spacing:.09em; color:var(--ink-3);
+}
+.callist{display:flex; flex-direction:column; gap:2px}
+.calrow{display:flex; align-items:center; gap:9px; padding:6px 8px; border-radius:var(--r); cursor:pointer}
+.calrow:hover{background:var(--surface-2)}
+.calrow input{accent-color:var(--accent); margin:0}
+.calrow .swatch{width:9px; height:9px; border-radius:2px; flex:none}
+.calrow .nm{flex:1; min-width:0; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.calrow .ct{font-size:11px; color:var(--ink-3)}
+
+.field{display:flex; flex-direction:column; gap:5px}
+.field label{font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-3)}
+select, input[type="text"], input[type="date"], input[type="time"]{
+  font:inherit; font-size:13px; padding:6px 8px; border-radius:var(--r);
+  border:1px solid var(--line-2); background:var(--surface-2); color:var(--ink); width:100%;
+}
+.note{font-size:12px; color:var(--ink-2); line-height:1.55}
+.note code{font-family:"IBM Plex Mono",monospace; font-size:11.5px; background:var(--surface-2); padding:1px 4px; border-radius:3px}
+
+/* ---------- calendar ---------- */
+.cal{padding:20px 24px; display:flex; flex-direction:column; gap:12px; min-width:0}
+.calhead{display:flex; align-items:baseline; gap:14px}
+.calhead h2{margin:0; font-size:22px; font-weight:600; letter-spacing:-.02em}
+.calhead .yr{color:var(--ink-3); font-weight:400}
+.calhead .nav{margin-left:auto; display:flex; gap:6px}
+.calhead .nav button{
+  border:1px solid var(--line-2); background:var(--surface); border-radius:var(--r);
+  width:28px; height:28px; display:grid; place-items:center; color:var(--ink-2);
+}
+.calhead .nav button:hover{background:var(--surface-2); color:var(--ink)}
+
+.dows{display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:1px}
+.dows div{
+  font-size:10.5px; text-transform:uppercase; letter-spacing:.09em; color:var(--ink-3);
+  padding:0 6px 4px; font-weight:600;
+}
+.grid{
+  display:grid; grid-template-columns:repeat(7,minmax(0,1fr));
+  gap:1px; background:var(--line); border:1px solid var(--line);
+  border-radius:var(--r); overflow:hidden; flex:1; min-height:440px;
+}
+.day{background:var(--surface); padding:6px 6px 8px; display:flex; flex-direction:column; gap:3px; min-height:92px; min-width:0}
+.day.out{background:var(--surface-2)}
+.day .dn{font-size:11.5px; color:var(--ink-3); font-variant-numeric:tabular-nums; font-weight:500}
+.day.out .dn{opacity:.5}
+.day.today .dn{
+  background:var(--accent); color:var(--accent-ink); border-radius:50%;
+  width:19px; height:19px; display:grid; place-items:center; font-weight:600;
+}
+.chip{
+  text-align:left; border:0; border-left:2.5px solid var(--cal-a); background:var(--cal-a-soft);
+  color:var(--ink); padding:3px 6px; border-radius:0 4px 4px 0; font-size:11.5px;
+  line-height:1.35; width:100%; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.chip:hover{filter:brightness(.96)}
+.chip.b{border-left-color:var(--cal-b); background:var(--cal-b-soft)}
+.chip.sel{outline:2px solid var(--accent); outline-offset:1px}
+.chip.cancelled{text-decoration:line-through; opacity:.5; background:transparent; border-left-color:var(--cancel)}
+.chip .t{font-family:"IBM Plex Mono",monospace; font-size:10.5px; color:var(--ink-2); margin-right:4px}
+.chip .flag{color:var(--hist); font-weight:700}
+
+/* ---------- inspector ---------- */
+.insp{border-left:1px solid var(--line); background:var(--surface); padding:20px 20px 28px; display:flex; flex-direction:column; gap:18px; overflow:auto}
+.insp h3{margin:0; font-size:16px; font-weight:600; letter-spacing:-.01em; text-wrap:balance}
+.kv{display:grid; grid-template-columns:auto 1fr; gap:4px 12px; font-size:12px}
+.kv dt{color:var(--ink-3); text-transform:uppercase; letter-spacing:.07em; font-size:10.5px; padding-top:2px}
+.kv dd{margin:0; font-family:"IBM Plex Mono",monospace; font-size:11.5px; word-break:break-all}
+.tags{display:flex; flex-wrap:wrap; gap:5px}
+.tag{font-size:11px; padding:2px 7px; border-radius:20px; border:1px solid var(--line-2); background:var(--surface-2); color:var(--ink-2)}
+.tag.a{border-color:var(--cal-a); color:var(--cal-a); background:var(--cal-a-soft)}
+.tag.b{border-color:var(--cal-b); color:var(--cal-b); background:var(--cal-b-soft)}
+
+.vers{display:flex; flex-direction:column; gap:0; border:1px solid var(--line); border-radius:var(--r); overflow:hidden}
+.ver{display:flex; align-items:center; gap:9px; padding:7px 10px; font-size:11.5px; border-bottom:1px solid var(--line); background:var(--surface)}
+.ver:last-child{border-bottom:0}
+.ver.win{background:var(--accent-soft)}
+.ver .badge{
+  font-family:"IBM Plex Mono",monospace; font-size:10px; padding:1px 5px; border-radius:3px;
+  background:var(--surface-3); color:var(--ink-2); flex:none;
+}
+.ver.win .badge{background:var(--accent); color:var(--accent-ink)}
+.ver .who{color:var(--ink-3); margin-left:auto; font-family:"IBM Plex Mono",monospace; font-size:10.5px; flex:none}
+.ver .val{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:"IBM Plex Mono",monospace}
+
+pre.ics{
+  margin:0; background:var(--surface-2); border:1px solid var(--line); border-radius:var(--r);
+  padding:10px 12px; font-family:"IBM Plex Mono",monospace; font-size:11px; line-height:1.6;
+  overflow-x:auto; white-space:pre;
+}
+pre.ics .add{background:var(--accent-soft); color:var(--accent); display:block; margin:0 -12px; padding:0 12px}
+pre.ics .keep{color:var(--ink-3)}
+pre.ics .xprop{color:var(--hist)}
+
+.actions{display:flex; gap:8px; flex-wrap:wrap}
+.btn{
+  border:1px solid var(--line-2); background:var(--surface-2); color:var(--ink);
+  padding:6px 13px; border-radius:var(--r); font-size:13px; font-weight:500;
+}
+.btn:hover{background:var(--surface-3)}
+.btn.primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.danger{color:var(--cancel); border-color:var(--cancel)}
+.empty{color:var(--ink-2); font-size:13px; line-height:1.6}
+.empty strong{color:var(--ink); font-weight:600}
+.axis-key{display:flex; flex-direction:column; gap:9px; font-size:12px; color:var(--ink-2)}
+.axis-key .row{display:flex; gap:9px; align-items:flex-start}
+.axis-key .mark{width:3px; align-self:stretch; border-radius:2px; flex:none; min-height:30px}
+
+/* ---------- scrubber ---------- */
+.scrub{
+  border-top:1px solid var(--hist-line); background:var(--hist-soft);
+  padding:13px 24px 16px; display:flex; flex-direction:column; gap:9px;
+}
+.scrubhead{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
+.scrubhead .lab{font-size:10.5px; text-transform:uppercase; letter-spacing:.09em; color:var(--hist); font-weight:600}
+.scrubhead .now{font-family:"IBM Plex Mono",monospace; font-size:12.5px; color:var(--ink); font-variant-numeric:tabular-nums}
+.scrubhead .meta{font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink-2); margin-left:auto}
+input[type="range"]{
+  -webkit-appearance:none; appearance:none; width:100%; background:transparent; margin:0; height:18px;
+}
+input[type="range"]::-webkit-slider-runnable-track{height:3px; background:var(--hist-line); border-radius:2px}
+input[type="range"]::-moz-range-track{height:3px; background:var(--hist-line); border-radius:2px}
+input[type="range"]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:15px; height:15px; border-radius:50%;
+  background:var(--hist); border:2px solid var(--bg); margin-top:-6px; cursor:grab;
+}
+input[type="range"]::-moz-range-thumb{
+  width:13px; height:13px; border-radius:50%; background:var(--hist);
+  border:2px solid var(--bg); cursor:grab;
+}
+.ticks{display:flex; justify-content:space-between; gap:4px}
+.tick{
+  font-family:"IBM Plex Mono",monospace; font-size:9.5px; color:var(--ink-3);
+  text-align:center; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.tick.on{color:var(--hist); font-weight:500}
+
+@media (max-width:1180px){
+  .main{grid-template-columns:1fr}
+  .rail,.insp{border:0; border-bottom:1px solid var(--line)}
+  .insp{order:3}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important; animation:none!important}}
+</style>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <h1>Bitemporal Calendar</h1>
+      <span class="sub mono">calendar/* · text/calendar · fossil wiki</span>
+    </div>
+    <span class="spacer"></span>
+    <div style="display:flex;align-items:center">
+      <span class="seg-label">Resolve over</span>
+      <div class="seg" role="group" aria-label="Resolution strategy">
+        <button id="m-all" aria-pressed="true">All versions</button>
+        <button id="m-leaf" aria-pressed="false">Leaf only</button>
+      </div>
+    </div>
+    <div id="lossflag" class="warn" hidden><span class="dot"></span><span></span></div>
+  </header>
+
+  <div class="main">
+    <aside class="rail">
+      <section>
+        <h2>Calendars</h2>
+        <div class="callist" id="callist"></div>
+      </section>
+      <section class="field">
+        <label for="target">New events write to</label>
+        <select id="target"></select>
+      </section>
+      <section class="field">
+        <label for="tz">Display in</label>
+        <select id="tz"></select>
+        <p class="note">No <code>VTIMEZONE</code> is stored — zoned values carry only the IANA name.
+        Offsets resolve at render against the browser's tz database. Change this and watch which
+        events move and which don't.</p>
+      </section>
+      <section>
+        <h2>Two axes</h2>
+        <div class="axis-key">
+          <div class="row">
+            <span class="mark" style="background:var(--accent)"></span>
+            <span><strong style="color:var(--ink)">Valid time</strong> — the grid. When things happen. Lives in <code>DTSTART</code>.</span>
+          </div>
+          <div class="row">
+            <span class="mark" style="background:var(--hist)"></span>
+            <span><strong style="color:var(--ink)">Transaction time</strong> — the scrubber. When the repo agreed. Lives in the artifact DAG.</span>
+          </div>
+        </div>
+      </section>
+    </aside>
+
+    <main class="cal">
+      <div class="calhead">
+        <h2 id="monthlab">September <span class="yr">2026</span></h2>
+        <div class="nav">
+          <button id="prev" aria-label="Previous month">‹</button>
+          <button id="next" aria-label="Next month">›</button>
+        </div>
+      </div>
+      <div class="dows"><div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div></div>
+      <div class="grid" id="grid"></div>
+    </main>
+
+    <aside class="insp" id="insp"></aside>
+  </div>
+
+  <footer class="scrub">
+    <div class="scrubhead">
+      <span class="lab">Repository as of</span>
+      <span class="now mono" id="scrubnow"></span>
+      <span class="meta mono" id="scrubmeta"></span>
+    </div>
+    <input type="range" id="scrubber" min="0" max="6" value="6" step="1" aria-label="Repository transaction time">
+    <div class="ticks" id="ticks"></div>
+  </footer>
+</div>
+
+<script>
+/* ============================================================
+   MOCK REPO — wiki pages carrying text/calendar, every version.
+   Stands in for /json/wiki/get?uuid=… over the artifact history.
+   ============================================================ */
+
+const CAL_A = 'calendar/fossil-see';
+const CAL_B = 'calendar/warren';
+
+const ics = (uidLine, ...events) =>
+  ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//fossil-see//calendar-over-wiki//EN',uidLine,
+   ...events, 'END:VCALENDAR'].join('\r\n');
+
+/* Four storage modes, one per event, so the display-zone selector shows
+   exactly which ones move and which don't:
+     libressl  UTC instant      (Z)        — fixed point in time
+     upstream  zoned wall clock (TZID)     — "2pm Denver", offset resolved at render
+     pizza     zoned wall clock (TZID)     — set by a collaborator in another zone
+     deep-work floating         (neither)  — "9am wherever I am"                    */
+
+const libressl = (seq, start, end) => [
+  'BEGIN:VEVENT',
+  'UID:libressl-pin-review@fossil-see',
+  'DTSTAMP:' + (seq === 0 ? '20260803T091400Z' : '20260818T083100Z'),
+  'DTSTART:' + start,
+  'DTEND:' + end,
+  'SEQUENCE:' + seq,
+  'SUMMARY:Review pinned LibreSSL release + SHA256',
+  'CATEGORIES:maintenance,security',
+  'X-FOSSIL-FILE:build/versions.env',
+  'END:VEVENT'
+].join('\r\n');
+
+const wasm = (seq, cancelled) => [
+  'BEGIN:VEVENT',
+  'UID:wasm-spike@fossil-see',
+  'DTSTAMP:' + (seq === 0 ? '20260803T091400Z' : '20260821T135500Z'),
+  'DTSTART;VALUE=DATE:20260921',
+  'DTEND;VALUE=DATE:20260923',
+  'SEQUENCE:' + seq,
+  ...(cancelled ? ['STATUS:CANCELLED'] : []),
+  'SUMMARY:WASM feasibility spike (SQLCipher + OPFS VFS)',
+  'END:VEVENT'
+].join('\r\n');
+
+const upstream = [
+  'BEGIN:VEVENT',
+  'UID:upstream-report@fossil-see',
+  'DTSTAMP:20260812T110200Z',
+  'DTSTART;TZID=America/Denver:20260904T140000',
+  'DTEND;TZID=America/Denver:20260904T153000',
+  'SEQUENCE:0',
+  'SUMMARY:File upstream report — fossil server SEE key',
+  'X-FOSSIL-DOC:docs/upstream-report-fossil-server-see-key.md',
+  'END:VEVENT'
+].join('\r\n');
+
+const freeze = [
+  'BEGIN:VEVENT',
+  'UID:release-freeze@fossil-see',
+  'DTSTAMP:20260818T083300Z',
+  'DTSTART;VALUE=DATE:20260918',
+  'SEQUENCE:0',
+  'SUMMARY:0.2 freeze — no new patches after this',
+  'END:VEVENT'
+].join('\r\n');
+
+const cutover = [
+  'BEGIN:VEVENT',
+  'UID:submodule-cutover@fossil-see',
+  'DTSTAMP:20260824T102000Z',
+  'DTSTART:20260925T110000',
+  'DTEND:20260925T120000',
+  'SEQUENCE:0',
+  'SUMMARY:Cut consumers over to this repo as a submodule',
+  'END:VEVENT'
+].join('\r\n');
+
+const pizza = (seq, start, end, stamp) => [
+  'BEGIN:VEVENT',
+  'UID:pizza-sync@shared',
+  'DTSTAMP:' + stamp,
+  'DTSTART;TZID=Europe/Berlin:' + start,
+  'DTEND;TZID=Europe/Berlin:' + end,
+  'SEQUENCE:' + seq,
+  'SUMMARY:pizza-party-vote sync — mode-2 group keys',
+  'END:VEVENT'
+].join('\r\n');
+
+const deepwork = [
+  'BEGIN:VEVENT',
+  'UID:deep-work@warren',
+  'DTSTAMP:20260807T164000Z',
+  'DTSTART:20260904T090000',
+  'DTEND:20260904T120000',
+  'SEQUENCE:0',
+  'RRULE:FREQ=WEEKLY;COUNT=8',
+  'EXDATE:20260918T090000',
+  'SUMMARY:Deep work — embed/ exit trap',
+  'END:VEVENT'
+].join('\r\n');
+
+const deepworkOverride = [
+  'BEGIN:VEVENT',
+  'UID:deep-work@warren',
+  'RECURRENCE-ID:20260925T090000',
+  'DTSTAMP:20260807T164000Z',
+  'DTSTART:20260926T090000',
+  'DTEND:20260926T113000',
+  'SEQUENCE:0',
+  'SUMMARY:Deep work — moved, Apple linker has no --wrap',
+  'END:VEVENT'
+].join('\r\n');
+
+const A_HDR = 'UID:cal-fossil-see-0e21a9\r\nNAME:fossil-see';
+const B_HDR = 'UID:cal-warren-77c3b1\r\nNAME:warren';
+
+/* Transaction-time history. Note v4: authored from v2 by a second clone,
+   saved against the tip — it silently drops v3's SEQUENCE:1 move. */
+let REPO = [
+  { page:CAL_A, hash:'a1c04f7e', mtime:'2026-08-03T09:14', user:'warren',
+    ics: ics(A_HDR, libressl(0,'20260908T160000Z','20260908T170000Z'), wasm(0,false)) },
+
+  { page:CAL_B, hash:'7b93d2c0', mtime:'2026-08-07T16:40', user:'warren',
+    ics: ics(B_HDR, deepwork, deepworkOverride,
+             pizza(0,'20260910T140000','20260910T150000','20260807T164000Z')) },
+
+  { page:CAL_A, hash:'c47e10b8', mtime:'2026-08-12T11:02', user:'warren',
+    ics: ics(A_HDR, libressl(0,'20260908T160000Z','20260908T170000Z'), wasm(0,false), upstream) },
+
+  { page:CAL_A, hash:'2f8a6d94', mtime:'2026-08-18T08:31', user:'warren',
+    ics: ics(A_HDR, libressl(1,'20260915T160000Z','20260915T170000Z'), wasm(0,false), upstream) },
+
+  { page:CAL_A, hash:'9d1b5ec2', mtime:'2026-08-18T08:33', user:'clone-b',
+    ics: ics(A_HDR, libressl(0,'20260908T160000Z','20260908T170000Z'), wasm(0,false), upstream, freeze) },
+
+  { page:CAL_A, hash:'5e6c33a1', mtime:'2026-08-21T13:55', user:'warren',
+    ics: ics(A_HDR, libressl(0,'20260908T160000Z','20260908T170000Z'), wasm(1,true), upstream, freeze) },
+
+  { page:CAL_A, hash:'b820f47d', mtime:'2026-08-24T10:20', user:'warren',
+    ics: ics(A_HDR, libressl(0,'20260908T160000Z','20260908T170000Z'), wasm(1,true), upstream, freeze,
+             cutover, pizza(1,'20260910T143000','20260910T153000','20260824T102000Z')) },
+];
+
+/* ============================================================
+   ICS PARSE — keeps every line verbatim so unknown properties
+   survive a read-modify-write untouched.
+   ============================================================ */
+
+function unfold(text){
+  const out = [];
+  for (const raw of text.split(/\r\n|\n|\r/)){
+    if (/^[ \t]/.test(raw) && out.length) out[out.length-1] += raw.slice(1);
+    else out.push(raw);
+  }
+  return out;
+}
+
+function splitLine(line){
+  let i = 0, inQ = false;
+  while (i < line.length){
+    const c = line[i];
+    if (c === '"') inQ = !inQ;
+    else if (c === ':' && !inQ) break;
+    i++;
+  }
+  const left = line.slice(0, i), value = line.slice(i + 1);
+  const parts = left.split(';');
+  const name = parts[0].toUpperCase();
+  const params = {};
+  for (const p of parts.slice(1)){
+    const eq = p.indexOf('=');
+    if (eq > 0) params[p.slice(0, eq).toUpperCase()] = p.slice(eq + 1).replace(/^"|"$/g,'');
+  }
+  return { name, params, value, raw: line };
+}
+
+function parseICS(text){
+  const lines = unfold(text);
+  const cal = { props:{}, components:[] };
+  let cur = null;
+  for (const line of lines){
+    if (!line.trim()) continue;
+    const p = splitLine(line);
+    if (p.name === 'BEGIN'){
+      if (p.value === 'VCALENDAR') continue;
+      cur = { type:p.value, lines:[] };
+      continue;
+    }
+    if (p.name === 'END'){
+      if (p.value === 'VCALENDAR'){ cur = null; continue; }
+      if (cur){ cal.components.push(cur); cur = null; }
+      continue;
+    }
+    if (cur) cur.lines.push(p);
+    else cal.props[p.name] = p;
+  }
+  return cal;
+}
+
+const get  = (c, n) => c.lines.find(l => l.name === n);
+const gval = (c, n) => { const l = get(c, n); return l ? l.value : null; };
+
+/* ============================================================
+   TIME ZONES — resolved, never stored.
+
+   No VTIMEZONE is written. A zoned value carries only the IANA
+   name (RFC 7809, time zones by reference); the offset is computed
+   at render against the platform's tz database — here, the one the
+   browser ships and updates via Intl. Store the question
+   ("2pm in America/Denver"), never the answer ("-0600").
+   ============================================================ */
+
+/* Parse the literal wall-clock digits. No zone applied. */
+function icsDate(v){
+  if (!v) return null;
+  const m = v.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2}))?Z?$/);
+  if (!m) return null;
+  return new Date(+m[1], +m[2]-1, +m[3], +(m[4]||0), +(m[5]||0), +(m[6]||0));
+}
+
+/* Which of the four RFC 5545 date-time forms a property carries. */
+function timeKind(line){
+  if (!line) return 'none';
+  if (line.params.VALUE === 'DATE' || /^\d{8}$/.test(line.value)) return 'date';
+  if (/Z$/.test(line.value)) return 'utc';
+  if (line.params.TZID) return 'zoned';
+  return 'floating';
+}
+
+const zoneParts = (instant, tz) => {
+  const p = {};
+  for (const { type, value } of new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hour12: false, year:'numeric', month:'2-digit', day:'2-digit',
+    hour:'2-digit', minute:'2-digit', second:'2-digit'
+  }).formatToParts(instant)) p[type] = value;
+  return p;
+};
+
+/* Offset of `tz` at a given UTC instant, in ms. */
+function tzOffset(instant, tz){
+  const p = zoneParts(instant, tz);
+  return Date.UTC(+p.year, +p.month-1, +p.day, +p.hour % 24, +p.minute, +p.second) - instant.getTime();
+}
+
+/* Wall clock in `tz` -> UTC instant. Two passes so DST boundaries land right. */
+function wallToInstant(w, tz){
+  const naive = Date.UTC(w.getFullYear(), w.getMonth(), w.getDate(), w.getHours(), w.getMinutes(), w.getSeconds());
+  let inst = naive - tzOffset(new Date(naive), tz);
+  return new Date(naive - tzOffset(new Date(inst), tz));
+}
+
+/* UTC instant -> a Date whose *local* fields read as the wall clock in `tz`,
+   so the grid can keep placing events with plain local-date arithmetic. */
+function displayWall(instant, tz){
+  const p = zoneParts(instant, tz);
+  return new Date(+p.year, +p.month-1, +p.day, +p.hour % 24, +p.minute, +p.second);
+}
+
+/* The one function that matters: stored value -> where it sits in the viewer's zone. */
+function resolve(line, dispTz, wallOverride){
+  if (!line) return null;
+  const w = wallOverride || icsDate(line.value);
+  if (!w) return null;
+  const kind = timeKind(line);
+  if (kind === 'date' || kind === 'floating') return new Date(w);   // no zone, no conversion
+  const instant = kind === 'utc'
+    ? new Date(Date.UTC(w.getFullYear(), w.getMonth(), w.getDate(), w.getHours(), w.getMinutes(), w.getSeconds()))
+    : wallToInstant(w, line.params.TZID);
+  return displayWall(instant, dispTz);
+}
+
+/* Human label for what a stored value commits to. */
+function kindLabel(line){
+  const k = timeKind(line);
+  return k === 'utc'   ? 'UTC instant'
+       : k === 'zoned' ? line.params.TZID
+       : k === 'date'  ? 'date only'
+       : 'floating (no zone)';
+}
+
+const ZONES = ['America/Denver','America/New_York','Europe/Berlin','Asia/Tokyo','UTC'];
+const localZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } };
+
+const isAllDay = c => { const l = get(c,'DTSTART'); return !!l && (l.params.VALUE === 'DATE' || /^\d{8}$/.test(l.value)); };
+const pad2 = n => String(n).padStart(2,'0');
+const dayKey = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+
+/* ============================================================
+   THE UNION — the whole design, in one function.
+
+   Group every VEVENT ever written by (UID, RECURRENCE-ID);
+   the survivor is max(SEQUENCE, DTSTAMP)  [RFC 5546 precedence].
+   Membership is the set union of containing VCALENDARs across
+   ALL surviving copies — not just the winner's page.
+   ============================================================ */
+
+function unionAt(tMax, mode){
+  let versions = REPO.filter(v => v.mtime <= tMax);
+  if (mode === 'leaf'){
+    const tip = new Map();
+    for (const v of versions) tip.set(v.page, v);   // ordered by mtime, last wins
+    versions = [...tip.values()];
+  }
+
+  const groups = new Map();
+  for (const v of versions){
+    const cal = parseICS(v.ics);
+    const calName = cal.props.NAME ? cal.props.NAME.value : v.page;
+    for (const comp of cal.components){
+      if (comp.type !== 'VEVENT') continue;
+      const uid = gval(comp,'UID');
+      const rid = gval(comp,'RECURRENCE-ID') || '';
+      const key = uid + '|' + rid;
+      if (!groups.has(key)) groups.set(key, { key, uid, rid, candidates:[], pages:new Set(), names:new Set() });
+      const g = groups.get(key);
+      g.candidates.push({
+        comp, seq:+(gval(comp,'SEQUENCE') || 0), stamp:gval(comp,'DTSTAMP') || '',
+        page:v.page, hash:v.hash, mtime:v.mtime, user:v.user
+      });
+      g.pages.add(v.page);
+      g.names.add(calName);
+    }
+  }
+
+  const resolved = [];
+  for (const g of groups.values()){
+    const ranked = [...g.candidates].sort((a,b) =>
+      b.seq - a.seq || (a.stamp < b.stamp ? 1 : a.stamp > b.stamp ? -1 : 0));
+    const win = ranked[0];
+    resolved.push({
+      key:g.key, uid:g.uid, rid:g.rid,
+      comp:win.comp, win, ranked,
+      pages:[...g.pages], names:[...g.names],
+      cancelled: gval(win.comp,'STATUS') === 'CANCELLED'
+    });
+  }
+  return resolved;
+}
+
+/* Expand RRULE across the visible window; apply EXDATE and RECURRENCE-ID overrides. */
+function occurrences(resolved, from, to, dispTz){
+  const overrides = new Map();
+  for (const r of resolved) if (r.rid) overrides.set(r.uid + '|' + r.rid, r);
+
+  const out = [];
+  const push = (r, start, isOverride) => {
+    if (start && start >= from && start <= to) out.push({ ...r, start, isOverride });
+  };
+
+  for (const r of resolved){
+    const dtstart = get(r.comp,'DTSTART');
+    if (!dtstart) continue;
+
+    if (r.rid){                                   // an override renders at its own DTSTART
+      push(r, resolve(dtstart, dispTz), true);
+      continue;
+    }
+    const wall = icsDate(dtstart.value);
+    if (!wall) continue;
+    const rrule = gval(r.comp,'RRULE');
+    if (!rrule){ push(r, resolve(dtstart, dispTz), false); continue; }
+
+    const rule = Object.fromEntries(rrule.split(';').map(s => s.split('=')));
+    const interval = +(rule.INTERVAL || 1);
+    const count = rule.COUNT ? +rule.COUNT : 400;
+    const until = rule.UNTIL ? icsDate(rule.UNTIL) : null;
+    const ex = new Set((gval(r.comp,'EXDATE') || '').split(',').filter(Boolean)
+      .map(s => { const d = icsDate(s); return d ? dayKey(d) : null; }));
+
+    /* Recurrence steps the WALL clock, then each occurrence resolves on its own:
+       "every Friday at 09:00 local" stays 09:00 across a DST transition, and the
+       underlying instant shifts by an hour. That only works because the offset
+       is computed per occurrence rather than stored once on the master. */
+    const w = new Date(wall);
+    for (let i = 0; i < count; i++){
+      if (until && w > until) break;
+      const disp = resolve(dtstart, dispTz, w);
+      if (disp && disp > to) break;
+      const stamp = `${w.getFullYear()}${pad2(w.getMonth()+1)}${pad2(w.getDate())}T${pad2(w.getHours())}${pad2(w.getMinutes())}${pad2(w.getSeconds())}`;
+      if (!ex.has(dayKey(w)) && !overrides.has(r.uid + '|' + stamp)) push(r, disp, false);
+      if (rule.FREQ === 'WEEKLY') w.setDate(w.getDate() + 7 * interval);
+      else if (rule.FREQ === 'MONTHLY') w.setMonth(w.getMonth() + interval);
+      else if (rule.FREQ === 'DAILY') w.setDate(w.getDate() + interval);
+      else break;
+    }
+  }
+  return out;
+}
+
+/* ============================================================
+   STATE + RENDER
+   ============================================================ */
+
+const state = {
+  mode:'all',
+  t:REPO.length - 1,
+  month:new Date(2026, 8, 1),
+  enabled:new Set([CAL_A, CAL_B]),
+  selected:null,
+  tz:localZone(),
+};
+
+const stops = () => [...REPO].sort((a,b) => a.mtime < b.mtime ? -1 : 1);
+const calClass = page => page === CAL_B ? 'b' : 'a';
+const fmtTime = d => d.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }).replace(' ','').toLowerCase();
+
+function currentResolved(){
+  const s = stops();
+  const tMax = s[Math.min(state.t, s.length - 1)].mtime;
+  return unionAt(tMax, state.mode);
+}
+
+function renderScrubber(){
+  const s = stops();
+  const i = Math.min(state.t, s.length - 1);
+  const cur = s[i];
+  const sc = document.getElementById('scrubber');
+  sc.max = s.length - 1; sc.value = i;
+  document.getElementById('scrubnow').textContent = cur.mtime.replace('T',' ');
+  document.getElementById('scrubmeta').textContent =
+    `${cur.page} @ ${cur.hash} · ${cur.user} · ${i + 1}/${s.length} artifacts`;
+  document.getElementById('ticks').innerHTML = s
+    .map((v, n) => `<span class="tick ${n === i ? 'on' : ''}">${v.hash}</span>`).join('');
+}
+
+function renderRail(){
+  const res = currentResolved();
+  const counts = {};
+  for (const r of res) for (const p of r.pages) counts[p] = (counts[p] || 0) + 1;
+  document.getElementById('callist').innerHTML = [CAL_A, CAL_B].map(p => `
+    <label class="calrow">
+      <input type="checkbox" data-cal="${p}" ${state.enabled.has(p) ? 'checked' : ''}>
+      <span class="swatch" style="background:var(--cal-${calClass(p)})"></span>
+      <span class="nm mono">${p}</span>
+      <span class="ct">${counts[p] || 0}</span>
+    </label>`).join('');
+  document.querySelectorAll('[data-cal]').forEach(el => el.onchange = () => {
+    el.checked ? state.enabled.add(el.dataset.cal) : state.enabled.delete(el.dataset.cal);
+    render();
+  });
+  const t = document.getElementById('target');
+  if (!t.options.length) t.innerHTML = [CAL_A, CAL_B].map(p => `<option>${p}</option>`).join('');
+
+  const z = document.getElementById('tz');
+  if (!z.options.length){
+    const zones = [...new Set([localZone(), ...ZONES])];
+    z.innerHTML = zones.map(v =>
+      `<option value="${v}" ${v === state.tz ? 'selected' : ''}>${v}${v === localZone() ? ' (this device)' : ''}</option>`).join('');
+    z.onchange = () => { state.tz = z.value; render(); };
+  }
+}
+
+function renderLossFlag(){
+  const s = stops();
+  const tMax = s[Math.min(state.t, s.length - 1)].mtime;
+  const all = unionAt(tMax, 'all'), leaf = unionAt(tMax, 'leaf');
+  const differing = all.filter(a => {
+    const l = leaf.find(x => x.key === a.key);
+    return !l || gval(l.comp,'DTSTART') !== gval(a.comp,'DTSTART')
+              || gval(l.comp,'SEQUENCE') !== gval(a.comp,'SEQUENCE');
+  });
+  const flag = document.getElementById('lossflag');
+  if (!differing.length){ flag.hidden = true; return; }
+  flag.hidden = false;
+  flag.querySelector('span:last-child').textContent =
+    state.mode === 'leaf'
+      ? `Leaf-only read is missing ${differing.length} revision${differing.length > 1 ? 's' : ''}`
+      : `${differing.length} revision${differing.length > 1 ? 's' : ''} recovered from a clobbered write`;
+  return differing.map(d => d.key);
+}
+
+function renderGrid(){
+  const res = currentResolved().filter(r => r.pages.some(p => state.enabled.has(p)));
+  const first = new Date(state.month.getFullYear(), state.month.getMonth(), 1);
+  const startCell = new Date(first); startCell.setDate(1 - first.getDay());
+  const endCell = new Date(startCell); endCell.setDate(startCell.getDate() + 41);
+
+  const occ = occurrences(res, startCell, endCell, state.tz);
+  const byDay = new Map();
+  for (const o of occ){
+    // all-day events span DTSTART..DTEND exclusive
+    let d = new Date(o.start);
+    const end = isAllDay(o.comp) && gval(o.comp,'DTEND') ? icsDate(gval(o.comp,'DTEND')) : null;
+    do {
+      const k = dayKey(d);
+      if (!byDay.has(k)) byDay.set(k, []);
+      byDay.get(k).push(o);
+      d = new Date(d); d.setDate(d.getDate() + 1);
+    } while (end && d < end);
+  }
+
+  const recovered = new Set(renderLossFlag() || []);
+  const today = dayKey(new Date());
+  let html = '';
+  for (let n = 0; n < 42; n++){
+    const d = new Date(startCell); d.setDate(startCell.getDate() + n);
+    const k = dayKey(d);
+    const out = d.getMonth() !== state.month.getMonth();
+    if (out && n >= 35) continue;
+    const evs = (byDay.get(k) || []).sort((a,b) => a.start - b.start);
+    html += `<div class="day ${out ? 'out' : ''} ${k === today ? 'today' : ''}">
+      <span class="dn">${d.getDate()}</span>
+      ${evs.map(o => `<button class="chip ${calClass(o.pages[0])} ${o.cancelled ? 'cancelled' : ''} ${state.selected === o.key ? 'sel' : ''}" data-key="${o.key}">
+        ${isAllDay(o.comp) ? '' : `<span class="t">${fmtTime(o.start)}</span>`}${recovered.has(o.key) ? '<span class="flag">▲ </span>' : ''}${gval(o.comp,'SUMMARY') || '(untitled)'}
+      </button>`).join('')}
+    </div>`;
+  }
+  document.getElementById('grid').innerHTML = html;
+  document.querySelectorAll('.chip').forEach(c => c.onclick = () => { state.selected = c.dataset.key; render(); });
+}
+
+function renderInspector(){
+  const el = document.getElementById('insp');
+  const res = currentResolved();
+  const r = res.find(x => x.key === state.selected);
+
+  if (!r){
+    el.innerHTML = `
+      <h2>Inspector</h2>
+      <p class="empty">Drag the <strong>scrubber</strong> to move through repository history. The grid redraws to show
+      what the project believed September would look like at that moment.</p>
+      <p class="empty">Between <span class="mono">2f8a6d94</span> and <span class="mono">9d1b5ec2</span> a second clone
+      saved over the first — Fossil linearizes onto the tip, so the tip document still carries the
+      <em>old</em> LibreSSL date. Switch to <strong>Leaf only</strong> to watch the event snap back to the 8th, and the
+      <span style="color:var(--hist)">▲</span> flag appear.</p>
+      <p class="empty">The four events use the four RFC 5545 time forms — UTC instant, two zoned
+      wall clocks, and one floating. Change <strong>Display in</strong> and only three of them move.
+      Nothing in the repository changed.</p>
+      <p class="empty">Select any event for its resolution trace and the exact
+      <span class="mono">/json/wiki/save</span> payload an edit would produce.</p>`;
+    return;
+  }
+
+  const c = r.comp;
+  const dtstart = get(c,'DTSTART');
+  const wallStart = dtstart ? icsDate(dtstart.value) : null;   // the event's own clock
+  const start = resolve(dtstart, state.tz);                    // where it lands for this viewer
+  const kind = timeKind(dtstart);
+  const allDay = isAllDay(c);
+  const known = new Set(['UID','DTSTAMP','DTSTART','DTEND','SEQUENCE','SUMMARY','RRULE','EXDATE','STATUS','RECURRENCE-ID','CATEGORIES']);
+  const extra = c.lines.filter(l => !known.has(l.name));
+  const cats = (gval(c,'CATEGORIES') || '').split(',').filter(Boolean);
+
+  el.innerHTML = `
+    <div>
+      <h2>Event</h2>
+      <h3>${gval(c,'SUMMARY') || '(untitled)'}</h3>
+    </div>
+
+    <div class="tags">
+      ${r.pages.map(p => `<span class="tag ${calClass(p)}">${p}</span>`).join('')}
+      ${cats.map(x => `<span class="tag">${x}</span>`).join('')}
+      ${r.cancelled ? '<span class="tag" style="color:var(--cancel);border-color:var(--cancel)">cancelled</span>' : ''}
+    </div>
+
+    <dl class="kv">
+      <dt>UID</dt><dd>${r.uid}</dd>
+      ${r.rid ? `<dt>Rec-ID</dt><dd>${r.rid}</dd>` : ''}
+      <dt>Stored</dt><dd>${dtstart ? dtstart.raw : '—'}</dd>
+      <dt>Means</dt><dd>${kindLabel(dtstart)}</dd>
+      <dt>Renders</dt><dd>${start ? (allDay ? start.toDateString() : start.toLocaleString()) : '—'}${
+        kind === 'zoned' || kind === 'utc'
+          ? `<br><span style="color:var(--ink-3)">in ${state.tz} — offset computed, not stored</span>` : ''}</dd>
+      <dt>Seq</dt><dd>${gval(c,'SEQUENCE')}</dd>
+      <dt>Stamp</dt><dd>${gval(c,'DTSTAMP')}</dd>
+      ${extra.length ? `<dt>Kept</dt><dd>${extra.map(l => l.name).join(', ')}</dd>` : ''}
+    </dl>
+
+    <div>
+      <h2>Resolution — ${r.ranked.length} assertion${r.ranked.length > 1 ? 's' : ''}</h2>
+      <div class="vers">
+        ${r.ranked.map((v, i) => `
+          <div class="ver ${i === 0 ? 'win' : ''}">
+            <span class="badge">SEQ ${v.seq}</span>
+            <span class="val">${(gval(v.comp,'DTSTART') || '').replace('T',' ')}</span>
+            <span class="who">${v.hash}·${v.user}</span>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <div>
+      <h2>Edit</h2>
+      <div class="field" style="margin-bottom:8px">
+        <label for="e-sum">Summary</label>
+        <input type="text" id="e-sum" value="${(gval(c,'SUMMARY') || '').replace(/"/g,'&quot;')}">
+      </div>
+      <div class="field">
+        <label for="e-date">Starts — edited in ${kindLabel(dtstart)}</label>
+        <input type="date" id="e-date" value="${wallStart ? dayKey(wallStart) : ''}">
+      </div>
+    </div>
+
+    <div>
+      <h2>Would write</h2>
+      <pre class="ics" id="preview"></pre>
+    </div>
+
+    <div class="actions">
+      <button class="btn primary" id="do-save">Save to ${r.pages[0]}</button>
+      ${r.cancelled ? '' : '<button class="btn danger" id="do-cancel">Cancel event</button>'}
+      <button class="btn" id="do-clear">Close</button>
+    </div>`;
+
+  const upd = () => renderPreview(r);
+  document.getElementById('e-sum').oninput = upd;
+  document.getElementById('e-date').oninput = upd;
+  document.getElementById('do-save').onclick = () => commit(r, false);
+  const dc = document.getElementById('do-cancel'); if (dc) dc.onclick = () => commit(r, true);
+  document.getElementById('do-clear').onclick = () => { state.selected = null; render(); };
+  upd();
+}
+
+/* Build the next VEVENT: replace only changed lines, keep every other line verbatim. */
+function nextEvent(r, cancel){
+  const sum = document.getElementById('e-sum').value;
+  const date = document.getElementById('e-date').value.replace(/-/g,'');
+  const c = r.comp;
+  const oldStart = gval(c,'DTSTART') || '';
+  const newStart = oldStart.replace(/^\d{8}/, date || oldStart.slice(0,8));
+  const sigChange = newStart !== oldStart || cancel;
+  const seq = +(gval(c,'SEQUENCE') || 0) + (sigChange ? 1 : 0);
+  const stamp = new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d+Z$/,'Z');
+
+  const lines = [];
+  let sawStatus = false;
+  for (const l of c.lines){
+    if (l.name === 'SUMMARY')      lines.push({ raw:`SUMMARY:${sum}`,        changed: sum !== gval(c,'SUMMARY') });
+    else if (l.name === 'SEQUENCE')lines.push({ raw:`SEQUENCE:${seq}`,       changed: sigChange });
+    else if (l.name === 'DTSTAMP') lines.push({ raw:`DTSTAMP:${stamp}`,      changed: true });
+    else if (l.name === 'DTSTART') lines.push({ raw:l.raw.replace(oldStart, newStart), changed: newStart !== oldStart });
+    else if (l.name === 'DTEND')   lines.push({ raw:l.raw.replace(/^(DTEND[^:]*:)\d{8}/, `$1${date || oldStart.slice(0,8)}`), changed: newStart !== oldStart });
+    else if (l.name === 'STATUS'){ sawStatus = true; lines.push({ raw:cancel ? 'STATUS:CANCELLED' : l.raw, changed:cancel }); }
+    else lines.push({ raw:l.raw, changed:false, kept:true });
+  }
+  if (cancel && !sawStatus) lines.push({ raw:'STATUS:CANCELLED', changed:true });
+  return { lines, seq, stamp };
+}
+
+function renderPreview(r){
+  const { lines } = nextEvent(r, false);
+  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const body = lines.map(l =>
+    l.changed ? `<span class="add">${esc(l.raw)}</span>`
+    : /^X-/.test(l.raw) ? `<span class="xprop">${esc(l.raw)}</span>`
+    : `<span class="keep">${esc(l.raw)}</span>`).join('\n');
+  document.getElementById('preview').innerHTML =
+`<span class="keep">POST /json/wiki/save</span>
+<span class="keep">  name: ${r.pages[0]}</span>
+<span class="keep">  mimetype: text/calendar</span>
+<span class="keep">BEGIN:VEVENT</span>
+${body}
+<span class="keep">END:VEVENT</span>`;
+}
+
+/* Splice the new VEVENT into the page's current document and append a version. */
+function commit(r, cancel){
+  const page = r.pages[0];
+  const tipIdx = REPO.map((v,i) => v.page === page ? i : -1).filter(i => i >= 0).pop();
+  const tip = REPO[tipIdx];
+  const { lines } = nextEvent(r, cancel);
+  const block = 'BEGIN:VEVENT\r\n' + lines.map(l => l.raw).join('\r\n') + '\r\nEND:VEVENT';
+
+  const cal = parseICS(tip.ics);
+  const target = cal.components.find(c =>
+    gval(c,'UID') === r.uid && (gval(c,'RECURRENCE-ID') || '') === r.rid);
+
+  let out;
+  if (target){
+    const old = 'BEGIN:VEVENT\r\n' + target.lines.map(l => l.raw).join('\r\n') + '\r\nEND:VEVENT';
+    out = tip.ics.includes(old) ? tip.ics.replace(old, block)
+                                : tip.ics.replace('END:VCALENDAR', block + '\r\nEND:VCALENDAR');
+  } else {
+    out = tip.ics.replace('END:VCALENDAR', block + '\r\nEND:VCALENDAR');
+  }
+
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  REPO.push({
+    page, ics: out, user:'you',
+    hash: Math.random().toString(16).slice(2,10),
+    mtime: `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`,
+  });
+  state.t = REPO.length - 1;
+  render();
+}
+
+function render(){
+  document.getElementById('monthlab').innerHTML =
+    `${state.month.toLocaleString([], { month:'long' })} <span class="yr">${state.month.getFullYear()}</span>`;
+  document.getElementById('m-all').setAttribute('aria-pressed', state.mode === 'all');
+  document.getElementById('m-leaf').setAttribute('aria-pressed', state.mode === 'leaf');
+  renderScrubber(); renderRail(); renderGrid(); renderInspector();
+}
+
+document.getElementById('scrubber').oninput = e => { state.t = +e.target.value; render(); };
+document.getElementById('m-all').onclick   = () => { state.mode = 'all';  render(); };
+document.getElementById('m-leaf').onclick  = () => { state.mode = 'leaf'; render(); };
+document.getElementById('prev').onclick = () => { state.month.setMonth(state.month.getMonth() - 1); render(); };
+document.getElementById('next').onclick = () => { state.month.setMonth(state.month.getMonth() + 1); render(); };
+
+render();
+</script>
