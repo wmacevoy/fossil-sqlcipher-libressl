@@ -1,0 +1,61 @@
+diff --git a/src/config.h b/src/config.h
+index c5b26e391..5f4fdcde7 100644
+--- a/src/config.h
++++ b/src/config.h
+@@ -279,3 +279,18 @@ typedef signed char i8;
+ 
+ 
+ #endif /* _RC_COMPILE_ */
++
++/* ---- swappable global context ---------------------------------------
++** Fossil keeps all process state in one `Global g`, which makes exactly one
++** repository openable per process. Reaching it through a pointer makes the
++** context selectable by an embedder at no cost to stock behaviour: every
++** `g.field` becomes `(*gp).field`, `&g` becomes `gp`, and `sizeof(g)`
++** becomes `sizeof(*gp)` -- all valid, all unchanged semantically. */
++struct Global;
++#if defined(_MSC_VER)
++# define FOSSIL_TLS __declspec(thread)
++#else
++# define FOSSIL_TLS _Thread_local
++#endif
++extern FOSSIL_TLS struct Global *gp;
++#define g (*gp)
+diff --git a/src/main.c b/src/main.c
+index de50e3b5f..e4cf96193 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -385,7 +385,24 @@ struct Global {
+ 
+ #endif
+ 
+-Global g;
++/* THE PROCESS-GLOBAL CONTEXT IS NOW REACHED THROUGH A POINTER.
++**
++** `g` is a macro for (*gp) -- see config.h -- so the line below reads to the
++** COMPILER as `Global (*gp);`, a tentative definition of the pointer, while
++** still reading to MKHEADERS as `Global g;`. That matters: mkheaders decides
++** which generated header needs `struct Global` by looking for files that use
++** the symbol `g`, so renaming this line out of existence silently stops the
++** struct from being emitted and every file fails with "incomplete type".
++** Measured, not guessed -- that was this patch's first attempt.
++**
++** fossil_context_init() below points gp at the default storage. It is called
++** from fossil_main() and must also be called by any embedder that opens a
++** repository WITHOUT going through fossil_main(). */
++FOSSIL_TLS Global g;   /* -> FOSSIL_TLS Global (*gp); one context PER THREAD */
++static FOSSIL_TLS Global g_default_context;
++void fossil_context_init(void){
++  if( gp==0 ) gp = &g_default_context;
++}
+ 
+ /*
+ ** atexit() handler which frees up "some" of the resources
+@@ -728,6 +745,7 @@ static int fossilExeHasAppendedRepo(void){
+ ** being called by separate invocations of fossil_main().
+ */
+ int fossil_main(int argc, char **argv){
++  fossil_context_init();   /* gp must be valid before any g.* access */
+   const char *zCmdName = "unknown";
+   const CmdOrPage *pCmd = 0;
+   int rc;

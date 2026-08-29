@@ -241,6 +241,30 @@ else
     echo "  WARN: patches/fossil-json-finfo-deletions.patch absent - /json/finfo will under-report file history (deletions invisible)"
 fi
 
+# build/patches/fossil-swappable-context.patch makes Fossil's process-global
+# context reachable through a PER-THREAD pointer: `#define g (*gp)` with
+# `_Thread_local Global *gp`. Every one of the ~5,000 `g.field` sites compiles
+# unchanged, `&g` becomes `gp`, `sizeof(g)` becomes `sizeof(*gp)`.
+#
+# WHY: `Global g` is why Fossil can open exactly ONE repository per process,
+# which is why fossilsee.h documents a SINGLETON, which is why a device can
+# host only one tribe. The database is one field of that struct.
+#
+# TWO TRAPS, both hit while writing it:
+#   - `Global g;` must stay in main.c TEXTUALLY. mkheaders decides which
+#     generated header needs `struct Global` by looking for files that use the
+#     symbol `g`; rename that line and the struct stops being emitted and every
+#     file fails with "incomplete type".
+#   - gp is _Thread_local, so a thread that never called fossil_main() has a
+#     NULL context. fossil_context_init() primes it and MUST be called by any
+#     embedder that opens a repository directly -- embed/fossilsee.c does.
+if [ -f "$SCRIPT_DIR/patches/fossil-swappable-context.patch" ]; then
+    echo "  applying fossil-swappable-context.patch"
+    ( cd "$FOSSIL_SRC" && apply_patch "$SCRIPT_DIR/patches/fossil-swappable-context.patch" )
+else
+    echo "  WARN: patches/fossil-swappable-context.patch absent - one repository per process"
+fi
+
 # -- Step 3: Configure Fossil -------------------------------------------
 echo "==> Configuring Fossil"
 # -DSQLITE_HAS_CODEC here (not just in SEE_FLAGS.1 in main.mk) matters:

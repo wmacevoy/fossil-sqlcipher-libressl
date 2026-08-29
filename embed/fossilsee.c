@@ -34,6 +34,7 @@ typedef pid_t PID_T;
 ** of symbols, and naming them explicitly documents the exact surface this
 ** library depends on. */
 extern void fossil_embed_init(void (*exitHandler)(int));
+extern void fossil_context_init(void);   /* gp is per-thread; must be primed */
 extern void fossil_reset_fatal_guard(void);
 extern void fossil_reset_repository_filename_cache(void);
 extern void db_clear_delete_on_failure(void);
@@ -112,6 +113,8 @@ static int g_initDone = 0;
 
 static void fs_init_once(void){
   if( g_initDone ) return;
+  fossil_context_init();   /* BEFORE any g.* access -- gp is _Thread_local
+                           ** and this thread never went through fossil_main() */
   fossil_embed_init(fs_exit_handler);
   sqlite3_config(SQLITE_CONFIG_MULTITHREAD);
   g_initDone = 1;
