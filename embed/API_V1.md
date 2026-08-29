@@ -10,6 +10,84 @@ the evidence that v0's boundary is in the wrong place.
 
 ---
 
+## 0. What a fork actually buys, and what libfossilsee actually is
+
+Before any of the below: the plain version, because "push/pull forks" is not
+self-explanatory.
+
+**libfossilsee is a database handle, not a program handle.** Its entire
+exported surface is five symbols:
+
+    fossilsee_abi  fossilsee_open  fossilsee_close  fossilsee_sql  fossilsee_errmsg
+
+`fossilsee_open()` hands back a **read-only SQLite connection** to the
+repository file, with Fossil's own SQL functions registered (`content()`,
+`decompress()`). So a caller can read anything Fossil **stores**. It cannot
+invoke anything Fossil **does**.
+
+**And a fork is a pipe around Fossil's `printf`.** Literally — viki's
+`run_capture()` is:
+
+```c
+    pipe(pipefd);
+    pid = fork();
+    if( pid == 0 ){
+        dup2(pipefd[1], STDOUT_FILENO);   /* <- the entire point */
+        execvp(argv[0], argv);
+    }
+```
+
+That is "run this Fossil command and capture what it printed." viki does not
+fork for isolation, or safety, or crash containment. **It forks because
+fork+exec+pipe is the only implemented way to call a Fossil command and read
+the result.**
+
+So every fork in viki is a very expensive function call, and the interesting
+question for each one is *what C code is it reaching that SQL cannot?*
+
+| viki forks for | what the fork was buying | verdict |
+|---|---|---|
+| `uv export` | zlib decompression | **nothing** — `decompress()` is a registered SQL function; the fork was never needed |
+| `uv add` | permission to write one row | **permission, not capability** — `unversioned_write()` is one `REPLACE INTO`; the connection is read-only by policy (`fs_authorizer`) |
+| `uv sync` | `sync_unversioned()` | **real behaviour** — ~4,700 lines across `xfer.c`, `http.c`, `http_socket.c`, `http_transport.c`. No `SELECT` does this |
+
+Only the third is intrinsic. That is the whole answer to "what makes push/pull
+a fork": one leg needed nothing, one needs a permission, and one needs a
+network protocol implemented in C.
+
+### 0a. So what is missing from libfossilsee is ONE primitive
+
+Not the verb list in §4 — that is what should be *built on top*. The single
+missing thing is the ability to invoke a Fossil command in-process and get its
+output back:
+
+```c
+typedef int (*fossilsee_out)(void *pArg, const char *zChunk, size_t n);
+int fossilsee_cmd(fossilsee*, int argc, char **argv, fossilsee_out, void*);
+```
+
+Every Fossil command is `fossil_main(argc, argv)` reporting through stdout, so
+reaching one in-process needs exactly two things:
+
+1. **Enter and leave it safely.** *Already solved.* `embed/harness.c` proves
+   repeated in-process `fossil_main()` calls with `fossil_exit()` intercepted
+   and turned into a `longjmp`, via a registered handler rather than a linker
+   trick — which is why it works with Apple's linker, the iOS-adjacent target
+   the whole exercise exists to unblock.
+2. **Capture what it printed.** *Not built.* This is the item README's
+   "What's still open" names first, and it gates everything that is not SQL.
+
+**The fork is today's implementation of item 2.** That is the cleanest way to
+see the gap: viki already has output capture — it is just spelled `fork`, and
+`fork` is the one spelling iOS does not have.
+
+`fossilsee_cmd()` is not a good *API* — an argv shim fails §1's abstraction
+test as surely as a raw SQL string does, and a caller would be back to reading
+Fossil's source to use it. It is the enabling **primitive**. The typed verbs in
+§4 are what should be written against it, and what callers should see.
+
+---
+
 ## 1. The test v0 fails
 
 From `SOFTWARE-ENGINEERING-2.md` §5:
