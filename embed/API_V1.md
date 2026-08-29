@@ -10,6 +10,25 @@ the evidence that v0's boundary is in the wrong place.
 
 ---
 
+## Scope, decided 2026-08-29 (Warren)
+
+- **v1 is SINGLE TRIBE.** libfossilsee's context may as well be global. Why is
+  in `../docs/FINDINGS.md`: not `Global g` (already swappable and per-thread)
+  but 66 cached prepared statements bound to one connection.
+- **"No forks ever" is RESCINDED.** The web server has to fork early, or exec,
+  for each hosted connection. The rule that survives is narrower and more
+  useful: **fork per TRIBE or per CONNECTION, never per OPERATION.** Forking
+  once to host a repo is architecture; forking once per unversioned blob was
+  the bug.
+- **retain/recall still pays**, single tribe or not. It was never justified by
+  multi-tribe -- it is what makes `viki_note("message")` a one-argument call
+  from any depth instead of eight parameters of plumbing.
+- **The config/use split is still needed here**, and is now the main v1 item:
+  `fossil_process_init()` / `fossil_context_*()` / `fossil_command(argc,argv)`.
+  §0c has the shape.
+
+---
+
 ## 0. What a fork actually buys, and what libfossilsee actually is
 
 Before any of the below: the plain version, because "push/pull forks" is not
