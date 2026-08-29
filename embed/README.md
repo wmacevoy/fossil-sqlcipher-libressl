@@ -83,6 +83,18 @@ Findings from a dedicated review pass (2026-08-13), not yet acted on in code:
 - **Cross-compilation to arm64-apple-ios is completely unattempted anywhere in this repo** — not Fossil's own `./configure`, not SQLCipher against *this project's specific* LibreSSL choice (precedent exists for SQLCipher-on-iOS via CommonCrypto; none found here for the LibreSSL path this project actually uses), not LibreSSL itself. Packaging shape (`XCFramework`) also undesigned. This is a real, separate body of work from the exit-trap fix, not a detail to discover mid-integration.
 - **iOS filesystem-sandbox realities are untested**: `NSFileProtectionComplete` making the repo file inaccessible while the device is locked mid-write, iCloud-backup inclusion/exclusion for the repo file, and multi-process (app + extension, via App Group) access to the same repo — a known historical SQLite-in-App-Group corruption class, never checked against Fossil's own locking model specifically.
 
+## v1 API proposal — read `API_V1.md`
+
+`API_V1.md` (2026-08-29) argues that v0's boundary is in the wrong place, using
+viki's adoption of it as the evidence: eight separate facts about Fossil's
+internal schema and manifest format had to be read out of Fossil's *source* to
+use "read-only SQL" correctly, which is the definition of a failed abstraction.
+It also records a concrete transport-dependent behaviour difference
+(`pragma_table_info` succeeds via `fossil sql`, denied in-process) and argues
+that **sync belongs in the smallest useful slice, not after it** — without it a
+peer with no `fork()` can never receive what another peer wrote. Proposal, not
+a decision.
+
 ## What's still open before this is a real build target
 
 - **Output capture.** Fossil prints to stdout; a real embedding needs per-call redirection to a buffer, or should use Fossil's built-in JSON command API (`fossil json timeline`, etc., already compiled in) as the structured interface instead of scraping text output — though note the JSON API is *not* a separate invocation mechanism, it's layered on the same `fossil_main(argc,argv)`/stdout path, just easier to parse. The one place worth skipping the argv/stdout shim entirely: SQL queries, which can go straight through `db.c`'s `db_prepare`/`db_step`/`db_column_*` functions with zero argv parsing involved.
