@@ -217,6 +217,30 @@ else
     echo "  WARN: patches/fossil-embed-exit-trap.patch absent - fossil_embed_init() will not be available for future embedded/FFI use"
 fi
 
+# build/patches/fossil-json-finfo-deletions.patch fixes a REAL UPSTREAM BUG,
+# not a fossil-see need: /json/finfo silently omits every deletion.
+#
+# json_finfo.c computes `(mlink.fid==0) AS isDel` and feeds it to
+# json_artifact_status_to_string(), which can return "added", "modified" or
+# "removed" -- but the same query inner-joins `blob b` on `b.rid=mlink.fid`,
+# and a deletion has fid==0 while no blob has rid==0.  So the join deletes
+# exactly the rows isDel exists to flag: the column is dead code and
+# "removed" is unreachable from this route.  The CLI `fossil finfo` gets it
+# right (finfo.c has an explicit `mlink.fid>0 OR NOT EXISTS(...)` clause);
+# only the JSON path is wrong.
+#
+# Measured before writing the patch, on a scratch repo with one file added,
+# modified, then `fossil rm`'d: the shipped query returns two rows (added,
+# modified) and the LEFT JOIN returns three, the third being isDel=1.
+#
+# This one is a candidate to send upstream -- see patches/README.md.
+if [ -f "$SCRIPT_DIR/patches/fossil-json-finfo-deletions.patch" ]; then
+    echo "  applying fossil-json-finfo-deletions.patch"
+    ( cd "$FOSSIL_SRC" && apply_patch "$SCRIPT_DIR/patches/fossil-json-finfo-deletions.patch" )
+else
+    echo "  WARN: patches/fossil-json-finfo-deletions.patch absent - /json/finfo will under-report file history (deletions invisible)"
+fi
+
 # -- Step 3: Configure Fossil -------------------------------------------
 echo "==> Configuring Fossil"
 # -DSQLITE_HAS_CODEC here (not just in SEE_FLAGS.1 in main.mk) matters:

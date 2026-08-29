@@ -1,0 +1,30 @@
+diff --git a/src/json_finfo.c b/src/json_finfo.c
+index 91dc8756c..67ede237d 100644
+--- a/src/json_finfo.c
++++ b/src/json_finfo.c
+@@ -77,10 +77,23 @@ cson_value * json_page_finfo(void){
+ /*8*/   " b.size,"
+ /*9*/   " (mlink.pid==0) AS isNew,"
+ /*10*/  " (mlink.fid==0) AS isDel"
+-        "  FROM mlink, blob b, event, blob ci, filename"
++        /* LEFT JOIN, not an inner join, so that DELETIONS survive.
++        ** A deletion has mlink.fid==0 and no blob has rid==0, so the
++        ** inner join "AND b.rid=mlink.fid" dropped every deletion row
++        ** -- which made the isDel column below dead code and the
++        ** "removed" state of json_artifact_status_to_string()
++        ** unreachable from /json/finfo.  The CLI finfo command gets
++        ** this right (see the mlink.fid>0 OR NOT EXISTS clause in
++        ** finfo.c); only the JSON path was wrong.
++        **
++        ** On a deletion row b.uuid and b.size are NULL: json_new_string()
++        ** maps NULL to NULL and cson_object_set() then unsets the key, so
++        ** such a row carries state "removed" and no "uuid" -- correct,
++        ** because a removal names no file content. */
++        "  FROM mlink LEFT JOIN blob b ON b.rid=mlink.fid,"
++        "       event, blob ci, filename"
+         " WHERE filename.name=%Q"
+         "   AND mlink.fnid=filename.fnid"
+-        "   AND b.rid=mlink.fid"
+         "   AND event.objid=mlink.mid"
+         "   AND event.objid=ci.rid",
+         zFilename
