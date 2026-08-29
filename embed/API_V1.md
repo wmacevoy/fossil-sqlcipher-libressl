@@ -106,11 +106,37 @@ real API, and it is better versioned than anything we would invent.
 `fossil_main()` today is process init + argv munging + dispatch; the repository
 open happens *inside* the commands. So the split is:
 
-    fossil_process_init()     sqlite3_config(MULTITHREAD), VFS register,
-                              version check.  ONCE per process.
-    fossil_context_*()        the Global + its sqlite3 connection.  ONE PER
+    fossil_process_init()     sqlite3_config(MULTITHREAD), sqlite3_config(LOG),
+                              the SQLite version floor, and REGISTERING any VFS
+                              that will later be named.  ONCE per process.
+    fossil_context_*()        config + vfs + version + connection.  ONE PER
                               TRIBE.  This is what viki retains.
     fossil_command(argc,argv) a pure function of the current context.
+
+**A context is four things, and the VFS is one of them** -- Warren's
+correction, and Fossil already agrees with it. An earlier draft here put "VFS
+register" in process init, which conflates two different operations:
+
+    REGISTERING a vfs    a process-wide name -> implementation table.  Once.
+    SELECTING  a vfs     per connection, BY NAME.  Per tribe.
+
+`db.c` opens with `sqlite3_open_v2(zDbName, &db, flags, g.zVfsName)` -- the VFS
+is an argument to the open -- and `zVfsName` is already a field of `Global`
+(`main.c:159`, "The VFS to use for database connections"), settable by `--vfs`
+or `$FOSSIL_VFS`. So a tribe repointing its VFS needs no new mechanism; it is
+one field of the context Fossil already carries. That matters on iOS, where
+the file layer is exactly the thing that differs.
+
+    typedef struct {
+        FossilConfig  cfg;     /* user, flags, paths                        */
+        const char   *zVfs;    /* per-tribe; passed to sqlite3_open_v2      */
+        FossilVersion ver;     /* this repo's schema/compat state           */
+        sqlite3      *db;      /* the connection                            */
+    } FossilContext;
+
+The connection could be opened lazily, but there is little reason to: almost
+nothing in a context is useful before it is open, so a lazy handle mostly buys
+a NULL check at every use site.
 
 `fossil-swappable-context.patch` already did the hard half: `g` is `(*gp)` with
 `_Thread_local Global *gp`, so "the current context" is a pointer a caller can
