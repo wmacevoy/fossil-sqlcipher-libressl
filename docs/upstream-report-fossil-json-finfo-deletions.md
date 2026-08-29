@@ -1,4 +1,4 @@
-# `/json/finfo` silently omits every file deletion; its own `isDel` column has been unreachable since 2012
+# `finfo` silently omits every file deletion on two of its three routes; `/json/finfo`'s `isDel` column has been unreachable since 2012
 
 **Status: drafted, not yet filed upstream.** Ready to post to fossil-scm.org's forum as-is.
 
@@ -16,10 +16,26 @@ inner-joins `blob b` on `b.rid=mlink.fid`. A deletion has `mlink.fid==0`, and no
 blob has `rid==0`, so the join removes exactly the rows `isDel` exists to flag.
 The column is dead code and `"removed"` is unreachable from this route.
 
-The CLI `fossil finfo` is **not** affected — `finfo.c` carries an explicit
-`mlink.fid>0 OR NOT EXISTS(...)` clause and reports deletions correctly. So the
-two faces disagree about the history of the same file, which is what makes this
-easy to miss: anyone checking with the CLI sees correct output.
+**The same inner join appears in the CLI's log-mode query** (`finfo.c:223`), so
+`fossil finfo FILENAME` omits deletions too. Only the **web** `/finfo` page is
+correct: `finfo_page()` (`finfo.c:453`) carries an explicit
+`mlink.fid>0 OR NOT EXISTS(...)` clause for exactly this case.
+
+So of the three routes onto one file's history, two disagree with the third:
+
+| route | function | deletions |
+|---|---|---|
+| `/finfo` (web) | `finfo_page()`, `finfo.c:453` | **reported** |
+| `fossil finfo` (CLI) | `finfo_cmd()`, `finfo.c:223` | omitted |
+| `/json/finfo` | `json_finfo.c:80` | omitted |
+
+Measured on the repo built by the reproduction below, running each route's own
+query verbatim:
+
+```
+CLI query        -> add, mod
+web page query   -> add, mod, del (isDel=1)
+```
 
 ## Affected versions
 
@@ -65,7 +81,9 @@ state=added     comment=add
 
 ## Fix
 
-Make the blob join outer, so a deletion row survives it:
+Make the blob join outer, so a deletion row survives it. Shown for
+`json_finfo.c`, which is the route this report was produced against and the one
+verified end to end:
 
 ```diff
 --- a/src/json_finfo.c
@@ -84,6 +102,14 @@ key, so the row carries `"state": "removed"` and **no** `"uuid"` — which is
 correct, because a removal names no file content. `b.size` yields 0 via
 `db_column_int64()`.
 
+`finfo.c:223` takes the identical change. It is deliberately **not** proposed
+here as a finished patch, because the CLI *prints* what the JSON route only
+returns: `finfo_cmd()` formats each row as `artifact: [%S]` from `b.uuid`, which
+is NULL on a deletion. Fossil's `%S` is NULL-safe (`printf.c:726` substitutes
+`""`), so the fix does not crash — it renders `artifact: []`, and what a
+deletion row should actually *say* is a UI decision that belongs to whoever
+maintains this, not to a drive-by patch. Reporting it rather than guessing.
+
 ## Compatibility note
 
 This is a behaviour change for any consumer that assumes every element of
@@ -94,4 +120,6 @@ consumer written only against `/json/finfo` could not have encountered a
 
 Filing it as a bug rather than a feature request because the intent is
 unambiguous in the code: the column, the status string, and the `"removed"`
-literal are all present and were clearly meant to be emitted.
+literal are all present and were clearly meant to be emitted. The web `/finfo`
+page having handled this correctly all along is the strongest evidence that
+omitting deletions was never the intended behaviour.
