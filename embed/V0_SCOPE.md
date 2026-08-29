@@ -1,3 +1,12 @@
+> **SUPERSEDED 2026-08-29.** viki is not building on libfossilsee. Warren:
+> *"libfossil is a dead end with hundreds of patch points and a bad api."*
+> The replacement is `viki-core` — SQLite as the contract, Fossil's patterns
+> as ancestry only, no filesystem, no network, no subprocess. See
+> `wmacevoy/viki` `core/README.md`.
+>
+> This document is kept as the record of what was measured, not as a plan.
+> Nothing in it should be started.
+
 # v0 scope and size
 
 > *"how much work is v0 - viki is just fossil-see as a contract and no

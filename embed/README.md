@@ -83,6 +83,14 @@ Findings from a dedicated review pass (2026-08-13), not yet acted on in code:
 - **Cross-compilation to arm64-apple-ios is completely unattempted anywhere in this repo** — not Fossil's own `./configure`, not SQLCipher against *this project's specific* LibreSSL choice (precedent exists for SQLCipher-on-iOS via CommonCrypto; none found here for the LibreSSL path this project actually uses), not LibreSSL itself. Packaging shape (`XCFramework`) also undesigned. This is a real, separate body of work from the exit-trap fix, not a detail to discover mid-integration.
 - **iOS filesystem-sandbox realities are untested**: `NSFileProtectionComplete` making the repo file inaccessible while the device is locked mid-write, iCloud-backup inclusion/exclusion for the repo file, and multi-process (app + extension, via App Group) access to the same repo — a known historical SQLite-in-App-Group corruption class, never checked against Fossil's own locking model specifically.
 
+## SUPERSEDED as viki's substrate (2026-08-29)
+
+viki is **not** building on libfossilsee: "libfossil is a dead end with
+hundreds of patch points and a bad api" (Warren). `API_V1.md` and
+`V0_SCOPE.md` are records of what was measured, not plans. The library remains
+useful to fossil-see itself and to anything wanting read-only SQL against a
+repository; it is simply not viki's foundation.
+
 ## SINGLE TRIBE, decided — read `../docs/FINDINGS.md`
 
 **libfossilsee is single-tribe and v1 keeps it that way** (Warren, 2026-08-29):
