@@ -15,17 +15,41 @@ the evidence that v0's boundary is in the wrong place.
 - **v1 is SINGLE TRIBE.** libfossilsee's context may as well be global. Why is
   in `../docs/FINDINGS.md`: not `Global g` (already swappable and per-thread)
   but 66 cached prepared statements bound to one connection.
-- **"No forks ever" is RESCINDED.** The web server has to fork early, or exec,
-  for each hosted connection. The rule that survives is narrower and more
-  useful: **fork per TRIBE or per CONNECTION, never per OPERATION.** Forking
-  once to host a repo is architecture; forking once per unversioned blob was
-  the bug.
+- **"No forks ever" is RESCINDED, for the SERVER only.** The web API forks for
+  new connections; that is architecture, not a smell. **It does not license
+  forking anywhere else.** On iOS there is no `fork()` at all, so a single
+  local repository must do everything in process — including **`uv sync`, which
+  therefore does NOT fork and is a v1 item, not a deferred one.** It calls
+  libfossilsee, factored so it can run against one fossil repo on a phone.
+  (An earlier draft here reasoned that sync is "per tribe" and so may fork.
+  That is the server's rule applied to the client, and it is wrong: the phone
+  has no fork to spend.)
+- **An iOS app with MULTIPLE LOCAL REPOS is a HARD BLOCK today**, and the
+  swappable-context patch does not lift it on its own. See "the lift" below.
 - **retain/recall still pays**, single tribe or not. It was never justified by
   multi-tribe -- it is what makes `viki_note("message")` a one-argument call
   from any depth instead of eight parameters of plumbing.
 - **The config/use split is still needed here**, and is now the main v1 item:
   `fossil_process_init()` / `fossil_context_*()` / `fossil_command(argc,argv)`.
-  §0c has the shape.
+  §0c has the shape. This is what lets `uv sync` run in process.
+
+### The lift, so the patch is not mistaken for the fix
+
+`build/patches/fossil-swappable-context.patch` **stays** — it is green
+(m1 90/0/0, probe 24/0), stock-behaviour-identical, and it removes the first
+layer. But it is *necessary and not sufficient*, and the gap is the reason
+multiple local repos on one device is a hard block:
+
+| still to lift | why the pointer swap misses it |
+|---|---|
+| **66 `static Stmt`** in 26 files (`manifest.c`, `content.c`, `xfer.c`, `search.c`, `vfile.c`, `timeline.c`) | each caches an `sqlite3_stmt*` bound to ONE connection. `db_close()` finalizes them, so close-then-switch is safe; switching *without* closing — which is what two open repos means — leaves a statement prepared against the other connection |
+| `zSavedKey` / `savedKeySize` (`db.c:1667`) | a second open silently reuses the first key. Measured: a deliberately wrong key SUCCEEDED after a good open |
+| `dbRepositoryFilenameCache` (`db.c:2805`) | returns the FIRST repository ever opened |
+
+Two candidate fixes for the 66, neither of which is 66 hand-lifts: give `Stmt`
+an owner/generation field checked in `db_step()` so a swapped context fails
+loudly at the point of use, or key the caches off `gp` so a swap simply misses.
+The first is better — it turns a silent wrong-connection use into an error.
 
 ---
 
