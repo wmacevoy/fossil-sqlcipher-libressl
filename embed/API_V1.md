@@ -81,10 +81,72 @@ reaching one in-process needs exactly two things:
 see the gap: viki already has output capture — it is just spelled `fork`, and
 `fork` is the one spelling iOS does not have.
 
-`fossilsee_cmd()` is not a good *API* — an argv shim fails §1's abstraction
-test as surely as a raw SQL string does, and a caller would be back to reading
-Fossil's source to use it. It is the enabling **primitive**. The typed verbs in
-§4 are what should be written against it, and what callers should see.
+### 0b. "Then the API looks like the command line" — and that is the point
+
+I first wrote here that `fossilsee_cmd()` "is not a good API — an argv shim
+fails §1's abstraction test as surely as a raw SQL string does." **That was
+wrong, and the abstraction test says so.**
+
+The test is *can you use it correctly without reading its implementation?*
+
+- Raw SQL over `tagxref` **fails**: you must know that `tagxref.rid` is the
+  artifact and `tagxref.value` is the page size, that `GROUP BY 1 + max(mtime)`
+  is what avoids a superseded page, that the body is a counted `W` card. Eight
+  such facts, all from Fossil's source (§1).
+- `argv` **passes**: `fossil help sync` documents it. Nobody reads
+  `sync_unversioned()` to use `fossil sync`. And the CLI is the surface Fossil
+  actually maintains compatibility for — so binding to argv inherits a
+  stability promise that binding to internal C functions does not have.
+
+So the command line is not a fallback for lack of a real API. It **is** the
+real API, and it is better versioned than anything we would invent.
+
+### 0c. The factoring, and it is three parts not two
+
+`fossil_main()` today is process init + argv munging + dispatch; the repository
+open happens *inside* the commands. So the split is:
+
+    fossil_process_init()     sqlite3_config(MULTITHREAD), VFS register,
+                              version check.  ONCE per process.
+    fossil_context_*()        the Global + its sqlite3 connection.  ONE PER
+                              TRIBE.  This is what viki retains.
+    fossil_command(argc,argv) a pure function of the current context.
+
+`fossil-swappable-context.patch` already did the hard half: `g` is `(*gp)` with
+`_Thread_local Global *gp`, so "the current context" is a pointer a caller can
+set. Retain is the natural discipline for setting it — `RETAIN_BEGIN(VikiRepo,
+r, guard)` pushes `gp`, `RETAIN_END` restores it, and the Fossil C code four
+frames down reads `g` without knowing who pushed.
+
+### 0d. The weak point is OUTPUT, not input
+
+argv in is documented and stable. stdout out is neither. The division that
+follows:
+
+| | mechanism | why |
+|---|---|---|
+| **reads** | SQL | already works, structured, nothing to parse |
+| **actions** | argv | the result is mostly "did it work" |
+
+That collapses the output-capture problem for actions: capture it for
+diagnostics, do not parse it.
+
+**One caveat, with a live example.** `viki_cache.c` does
+`strstr(zOut, "uv-pull-only")` because `fossil uv sync` **exits 0** when the
+server refused the push for want of the `y` capability — so viki silently
+published nothing for a long time (QUEUE 35). An action that hides its failure
+in prose forces exactly the text-scraping this division is trying to avoid.
+
+The fix is not to teach viki to scrape more carefully. **We own this
+repository:** patch the exit status, so "did it work" is answerable without
+reading the chatter. Any other command found doing the same gets patched the
+same way — a much smaller and more durable body of work than a typed verb per
+feature.
+
+So §4's typed verbs are **no longer the recommendation.** They remain a thin,
+optional convenience for the handful of calls viki makes most, but the
+load-bearing interface is `fossil_command(argc, argv)` against a retained
+context, plus SQL for reads.
 
 ---
 
